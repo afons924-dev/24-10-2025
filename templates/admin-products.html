@@ -1,0 +1,76 @@
+<div class="flex flex-col lg:flex-row gap-12">
+<div class="w-full lg:w-1/2">
+<div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
+<h2 class="text-2xl font-bold mb-6" id="admin-form-title" data-i18n="addProductTitle">Adicionar Novo Produto</h2>
+<form id="admin-product-form" novalidate="">
+<input id="product-id" name="id" type="hidden"/><input id="product-image-url" name="imageUrl" type="hidden"/>
+<div class="space-y-4">
+<div>
+<label class="block text-gray-300 mb-2" for="product-name" data-i18n="productNameLabel">Nome do Produto</label>
+<input class="w-full p-3 rounded-md form-input" id="product-name" name="name" required="" type="text"/>
+<p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
+</div>
+<div>
+<label class="block text-gray-300 mb-2" for="product-description" data-i18n="descriptionLabel">Descrição</label>
+<textarea class="w-full p-3 rounded-md form-input" id="product-description" name="description" required="" rows="4"></textarea>
+<p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
+</div>
+<div>
+<label class="block text-gray-300 mb-2" for="product-price" data-i18n="priceLabel">Preço (€)</label>
+<input class="w-full p-3 rounded-md form-input" id="product-price" name="price" required="" step="0.01" type="number"/>
+<p class="error-message">Insira um preço válido.</p>
+</div>
+<div>
+<label class="block text-gray-300 mb-2" for="product-category" data-i18n="categoryLabel">Categoria</label>
+<input class="w-full p-3 rounded-md form-input" id="product-category" name="category" placeholder="Ex: para-ela, para-ele" required="" type="text" data-i18n-placeholder="categoryPlaceholder"/>
+<p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <label class="block text-gray-300 mb-2" for="product-stock" data-i18n="stockLabel">Stock</label>
+        <input class="w-full p-3 rounded-md form-input" id="product-stock" name="stock" required="" type="number" value="10">
+        <p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
+    </div>
+    <div>
+        <label class="block text-gray-300 mb-2" for="product-brand" data-i18n="brandLabel">Marca</label>
+        <input class="w-full p-3 rounded-md form-input" id="product-brand" name="brand" type="text">
+    </div>
+</div>
+<div>
+    <label class="block text-gray-300 mb-2" for="product-color" data-i18n="colorLabel">Cor</label>
+    <input class="w-full p-3 rounded-md form-input" id="product-color" name="color" type="text">
+</div>
+<div>
+    <label class="block text-gray-300 mb-2" for="product-material" data-i18n="materialLabel">Material</label>
+    <input class="w-full p-3 rounded-md form-input" id="product-material" name="material" type="text">
+</div>
+<div class="mb-4">
+    <label class="block text-gray-300 mb-2" for="product-tags">Tags (separadas por vírgula)</label>
+    <input class="w-full p-3 rounded-md form-input" id="product-tags" name="tags" type="text" placeholder="Ex: silencioso, potente, recarregável">
+</div>
+<div>
+<label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagem do Produto</label>
+<img alt="Pré-visualização da imagem" class="w-24 h-24 object-cover rounded-md mb-2 hidden" id="product-image-preview" loading="lazy" data-i18n-alt="imagePreviewAlt"/>
+<input accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-black hover:file:bg-pink-400" id="product-image-file" name="imageFile" type="file"/>
+<p class="text-xs text-gray-500 mt-1" data-i18n="changeImageHint">Selecione um novo ficheiro para alterar a imagem atual.</p>
+<p class="error-message" data-i18n="newProductImageRequired">Uma imagem é obrigatória para novos produtos.</p>
+</div>
+<div class="flex items-center">
+<input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox"/>
+<label class="ml-2 text-gray-300" for="product-show-urgency" data-i18n="showUrgencyLabel">Mostrar mensagem de "Poucas unidades!"</label>
+</div>
+</div>
+<div class="mt-6 flex gap-4">
+<button class="w-full btn btn-primary" type="submit" data-i18n="saveProductButton">Guardar Produto</button>
+<button class="w-full btn btn-secondary" id="clear-form-btn" type="button" data-i18n="clearFormButton">Limpar</button>
+</div>
+</form>
+</div>
+</div>
+<div class="w-full lg:w-1/2">
+<div class="bg-primary p-6 rounded-lg shadow-lg">
+<h2 class="text-2xl font-bold mb-6" data-i18n="productListTitle">Lista de Produtos</h2>
+<div class="space-y-4 max-h-[70vh] overflow-y-auto" id="admin-product-list"></div>
+</div>
+</div>
+</div>
