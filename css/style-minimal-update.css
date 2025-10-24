@@ -1,7 +1,5 @@
-/* CSS ORIGINAL MANTIDO - Apenas adicionando estilos para a seção About melhorada */
-
-/* Importar o CSS original */
-@import url('style.css');
+/* CSS MINIMALISTA - Apenas estilos para a seção About melhorada */
+/* NOTA: Este arquivo deve ser carregado DEPOIS do style.css principal */
 
 /* Estilos adicionais apenas para a nova seção About */
 .about-section {
