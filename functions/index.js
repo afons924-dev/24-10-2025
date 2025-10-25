@@ -1,6 +1,8 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const renderer = require("./renderer");
+const axios = require("axios");
+const cheerio = require("cheerio");
 
 // Initialize the application
 admin.initializeApp();
@@ -272,3 +274,68 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
  * Server-side rendering function for the application.
  */
 exports.ssr = functions.https.onRequest(renderer.render);
+
+exports.importProductFromAliExpress = functions.https.onCall(async (data, context) => {
+    // Ensure the user is authenticated.
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+
+    const { url } = data;
+    if (!url) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a "url" argument.');
+    }
+
+    try {
+        const { data: html } = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        });
+        const $ = cheerio.load(html);
+
+        // NOTE: These selectors are examples and are highly likely to break
+        // when AliExpress updates its website structure. This is the main
+        // challenge of web scraping.
+        let productName = $('h1').first().text().trim();
+        let productPrice = $('.product-price-value').first().text().trim();
+        let productImage = $('.magnifier-image').attr('src');
+
+        // Add more selectors as fallbacks
+        if (!productName) {
+            productName = $('meta[property="og:title"]').attr('content');
+        }
+        if (!productImage) {
+            productImage = $('meta[property="og:image"]').attr('content');
+        }
+        // Price is often tricky and can be in different elements
+        if (!productPrice) {
+            // This is just a hypothetical selector
+            productPrice = $('[class*="price"]').first().text().trim();
+        }
+
+        if (!productName || !productPrice || !productImage) {
+            console.log("Scraping failed. Details:", { productName, productPrice, productImage });
+            throw new functions.https.HttpsError('not-found', 'Could not extract product details. The page layout may have changed.');
+        }
+
+        // Return the extracted data to the client.
+        return {
+            name: productName,
+            price: parseFloat(productPrice.replace(/[^0-9.,]/g, '').replace(',', '.')),
+            image: productImage,
+            aliexpressUrl: url
+        };
+
+    } catch (error) {
+        console.error("Error scraping AliExpress:", error);
+        if (error.isAxiosError) {
+             throw new functions.https.HttpsError('unavailable', 'Could not fetch the AliExpress page.');
+        }
+        // Check if it's an HttpsError and rethrow it
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
+        throw new functions.https.HttpsError('internal', 'An internal error occurred while scraping the product.');
+    }
+});

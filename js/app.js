@@ -91,8 +91,8 @@ const app = {
         '/': 'home', '/products': 'products', '/search': 'search', '/product-detail': 'product-detail',
         '/cart': 'cart', '/checkout': 'checkout', '/account': 'account',
         '/about': 'about', '/contact': 'contact', '/terms': 'terms',
-        '/privacy': 'privacy', '/faq': 'faq', '/admin': 'admin', '/admin-orders': 'admin',
-        '/admin-reviews': 'admin', '/wishlist': 'account',
+        '/privacy': 'privacy', '/faq': 'faq', '/admin': 'admin',
+        '/wishlist': 'account',
     },
 
     debounce(func, delay) {
@@ -513,17 +513,33 @@ const app = {
             case '/contact': this.initContactForm(); break;
             case '/faq': /* Accordion handled globally */ break;
             case '/account': await this.initAccountPage(params.get('tab') || 'dashboard'); break;
-            case '/admin': await this.initAdminPage('products'); break;
-            case '/admin-orders': await this.initAdminPage('orders'); break;
-            case '/admin-reviews': await this.initAdminPage('reviews'); break;
+            case '/admin': await this.initAdminPage(); break;
         }
     },
 
-    async initAdminPage(tab) {
-        this.updateAdminNav(tab);
-        if (tab === 'products') await this.initAdminProductsPage();
-        else if (tab === 'orders') await this.initAdminOrdersPage();
-        else if (tab === 'reviews') await this.initAdminReviewsPage();
+    async initAdminPage() {
+        // Dynamically load CSS
+        if (!document.querySelector('link[href="css/admin.css"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'css/admin.css';
+            document.head.appendChild(link);
+        }
+
+        // Dynamically load JS
+        if (typeof adminInit === 'undefined') {
+            try {
+                await import('../js/admin.js');
+                adminInit(this.auth, this.db, this.functions);
+            } catch (error) {
+                console.error("Failed to load admin module:", error);
+            }
+        } else {
+             // If already loaded, maybe just re-run a specific part of the init logic
+            if (typeof adminShowTab !== 'undefined') {
+                 adminShowTab('dashboard');
+            }
+        }
     },
 
     updateAdminNav(activeTab) {

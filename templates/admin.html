@@ -1,18 +1,218 @@
-<div class="container mx-auto px-4 py-12">
-<div class="text-center py-8">
-<h2 class="text-4xl font-extrabold text-white" data-i18n="adminPanelTitle">Painel de Administração</h2>
-<p class="text-gray-400 mt-2" data-i18n="adminPanelSubtitle">Gerir a sua loja.</p>
+<div class="admin-panel">
+    <aside class="sidebar">
+        <div class="logo">
+            <img src="https://firebasestorage.googleapis.com/v0/b/desire-loja-final.firebasestorage.app/o/render.png?alt=media&token=9a79935b-a376-4441-8f09-e4e492fb32ce" alt="Desire Logo">
+            <h2>Admin</h2>
+        </div>
+        <nav class="navigation">
+            <a href="#" class="nav-tab active" data-tab="dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+            <a href="#" class="nav-tab" data-tab="orders"><i class="fas fa-box"></i> Encomendas</a>
+            <a href="#" class="nav-tab" data-tab="products"><i class="fas fa-tag"></i> Produtos</a>
+            <a href="#" class="nav-tab" data-tab="settings"><i class="fas fa-cog"></i> Configurações</a>
+        </nav>
+        <div class="user-info">
+            <p id="adminUserEmail">A carregar...</p>
+            <button id="adminLogoutBtn" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Sair</button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="main-header">
+            <h1 id="tab-title">Dashboard</h1>
+            <div id="alertContainer"></div>
+        </header>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard-tab" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total de Encomendas</h3>
+                    <p id="totalOrders">0</p>
+                    <i class="fas fa-shopping-cart"></i>
+                </div>
+                <div class="stat-card">
+                    <h3>Total de Vendas</h3>
+                    <p id="totalRevenue">€0.00</p>
+                    <i class="fas fa-euro-sign"></i>
+                </div>
+                <div class="stat-card">
+                    <h3>Produtos Ativos</h3>
+                    <p id="activeProducts">0</p>
+                    <i class="fas fa-box-open"></i>
+                </div>
+                <div class="stat-card">
+                    <h3>Margem Média</h3>
+                    <p id="averageMargin">0%</p>
+                    <i class="fas fa-percentage"></i>
+                </div>
+            </div>
+             <div class="card">
+                <h2>Importar Produto do AliExpress</h2>
+                <div class="form-group">
+                    <label for="aliUrl">URL do Produto (AliExpress)</label>
+                    <div class="input-group">
+                        <input type="url" id="aliUrl" placeholder="https://www.aliexpress.com/item/12345.html" class="form-input">
+                        <button id="importBtn" class="btn btn-primary" onclick="importProduct()">Importar</button>
+                    </div>
+                </div>
+                <div id="importAlert" class="alert-container"></div>
+            </div>
+        </div>
+
+        <!-- Orders Tab -->
+        <div id="orders-tab" class="tab-content hidden">
+            <div class="card">
+                <h2>Gerir Encomendas</h2>
+                <div class="table-container">
+                    <table class="data-table" id="ordersTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Data</th>
+                                <th>Cliente</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products Tab -->
+        <div id="products-tab" class="tab-content hidden">
+            <div class="card">
+                <h2>Adicionar/Editar Produto de Dropship</h2>
+                 <div id="productAlert" class="alert-container"></div>
+                <form id="productForm">
+                    <div class="grid-form">
+                        <div class="form-group">
+                            <label for="productName">Nome do Produto</label>
+                            <input type="text" id="productName" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                             <label for="productCategory">Categoria</label>
+                             <select id="productCategory" class="form-input" required>
+                                 <option value="">Selecione a Categoria</option>
+                                 <option value="vibradores">Vibradores</option>
+                                 <option value="dildos">Dildos</option>
+                                 <option value="plugs">Plugs Anais</option>
+                                 <option value="aneis">Anéis Penianos</option>
+                                 <option value="algemas">Algemas & Acessórios</option>
+                                 <option value="lubrificantes">Lubrificantes</option>
+                                 <option value="kits">Kits Eróticos</option>
+                                 <option value="outros">Outros</option>
+                             </select>
+                        </div>
+                        <div class="form-group span-2">
+                            <label for="productDescription">Descrição</label>
+                            <textarea id="productDescription" class="form-input" rows="4"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="productCost">Preço de Custo (€)</label>
+                            <input type="number" id="productCost" class="form-input" step="0.01" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="productPrice">Preço de Venda (€)</label>
+                            <input type="number" id="productPrice" class="form-input" step="0.01" required>
+                        </div>
+                         <div class="form-group">
+                            <label for="marginDisplay">Margem (€ / %)</label>
+                            <input type="text" id="marginDisplay" class="form-input" disabled>
+                        </div>
+                        <div class="form-group span-2">
+                            <label for="productImage">URL da Imagem Principal</label>
+                            <input type="url" id="productImage" class="form-input">
+                        </div>
+                        <div class="form-group span-2">
+                            <label for="aliexpressUrl">URL do AliExpress (Original)</label>
+                            <input type="url" id="aliexpressUrl" class="form-input">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Guardar Produto</button>
+                         <button type="button" class="btn btn-secondary" onclick="document.getElementById('productForm').reset(); document.getElementById('marginDisplay').value = '';">Limpar</button>
+                    </div>
+                </form>
+            </div>
+            <div class="card">
+                <h2>Produtos de Dropship</h2>
+                 <div id="dropshipListAlert" class="alert-container"></div>
+                <div class="table-container">
+                    <table class="data-table" id="dropshipProductsTable">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>Categoria</th>
+                                <th>Custo</th>
+                                <th>Venda</th>
+                                <th>Margem</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Rows will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content hidden">
+            <div class="card">
+                <h2>Configurações</h2>
+                <div id="settingsAlert"></div>
+                <form id="settingsForm">
+                    <div class="form-group">
+                        <label for="notificationEmail">Email para Notificações</label>
+                        <input type="email" id="notificationEmail" class="form-input" value="admin@desire.pt">
+                    </div>
+                    <div class="form-group">
+                        <label for="defaultMargin">Margem de Lucro Padrão (%)</label>
+                        <input type="number" id="defaultMargin" class="form-input" value="150">
+                    </div>
+                    <div class="form-group">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="autoOrderEmail" checked>
+                            <span class="slider"></span>
+                            Enviar email de confirmação de encomenda automaticamente
+                        </label>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="saveSettings()">Guardar Configurações</button>
+                </form>
+            </div>
+        </div>
+    </main>
 </div>
-<div class="flex flex-col lg:flex-row gap-12">
-<aside class="w-full lg:w-1/4">
-<div class="bg-primary p-4 rounded-lg shadow-lg">
-<nav class="flex flex-col space-y-2" id="admin-nav">
-<a class="account-nav-link font-semibold p-3 rounded-md flex items-center gap-3" href="#/admin" data-i18n="adminNavManageProducts"><i class="fas fa-box-open w-5"></i>Gerir Produtos</a>
-<a class="account-nav-link font-semibold p-3 rounded-md flex items-center gap-3" href="#/admin-orders" data-i18n="adminNavManageOrders"><i class="fas fa-receipt w-5"></i>Gerir Encomendas</a>
-<a class="account-nav-link font-semibold p-3 rounded-md flex items-center gap-3" href="#/admin-reviews" data-i18n="adminNavManageReviews"><i class="fas fa-star-half-alt w-5"></i>Gerir Avaliações</a>
-</nav>
+
+<!-- Modals -->
+<div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="loader"></div>
 </div>
-</aside>
-<section class="w-full lg:w-3/4"><div id="admin-content-area"></div></section>
-</div>
+
+<div id="trackingModal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close-button" onclick="closeTrackingModal()">&times;</span>
+        <h2>Adicionar Tracking</h2>
+        <form id="trackingForm">
+            <input type="hidden" id="trackingOrderId">
+            <div class="form-group">
+                <label for="trackingNumber">Número de Tracking</label>
+                <input type="text" id="trackingNumber" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label for="trackingCarrier">Transportadora</label>
+                 <select id="trackingCarrier" class="form-input">
+                    <option value="CTT">CTT</option>
+                    <option value="Outra">Outra</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Adicionar</button>
+        </form>
+    </div>
 </div>
