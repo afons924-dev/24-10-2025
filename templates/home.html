@@ -86,16 +86,65 @@
 </div>
 </div>
 </section>
-<!-- Story Section -->
-<section class="story py-16 sm:py-24 bg-primary">
+<!-- Sobre Nós Section -->
+<section class="about-us py-16 sm:py-24 bg-primary">
     <div class="container mx-auto px-4">
-        <div class="section-header">
-            <h2 data-i18n="storyTitle">A Nossa História</h2>
+        <div class="section-header text-center mb-12">
+            <h2 data-i18n="aboutUsTitle" class="text-4xl font-bold">Sobre Nós</h2>
+            <p data-i18n="aboutUsSubtitle" class="text-gray-400 mt-2">Conheça nossa missão e valores</p>
         </div>
-        <div class="max-w-3xl mx-auto text-center text-gray-300 space-y-4">
-            <p data-i18n="storyParagraph1">A nossa história começou com a visão de criar um espaço onde a intimidade e o bem-estar andassem de mãos dadas. Queríamos oferecer produtos que não só fossem de alta qualidade, mas que também promovessem uma ligação mais profunda consigo mesmo e com os outros. Cada item da nossa coleção é cuidadosamente selecionado para garantir que cumpre os nossos rigorosos padrões de segurança, design e funcionalidade.</p>
-            <p data-i18n="storyParagraph2">Acreditamos que o prazer é uma parte essencial da vida e que todos merecem explorá-lo de forma segura e informada. É por isso que nos dedicamos a fornecer informações detalhadas e transparentes sobre todos os nossos produtos, ajudando-o a fazer as escolhas certas para si. A nossa missão é desmistificar o bem-estar íntimo e torná-lo acessível a todos, celebrando a diversidade e a individualidade de cada um.</p>
-            <p data-i18n="storyParagraph3">Mais do que uma loja, somos uma comunidade. Um lugar onde pode encontrar apoio, inspiração e os melhores produtos para a sua jornada de autodescoberta. Junte-se a nós e descubra um mundo de prazer, bem-estar e ligação.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+            <!-- Left Column: Text Content -->
+            <div class="text-gray-300 space-y-8">
+                <div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="ourMissionTitle">Nossa Missão</h3>
+                    <p data-i18n="ourMissionText">A Dark Desires é especializada em produtos premium para adultos, oferecendo uma experiência discreta, segura e de alta qualidade. Acreditamos que todos merecem acesso a produtos que promovam bem-estar e intimidade de forma responsável.</p>
+                </div>
+                <div>
+                    <h3 class="text-2xl font-bold mb-4" data-i18n="ourValuesTitle">Nossos Valores</h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
+                            <span data-i18n-html="valueDiscretion"><strong class="font-semibold">Discrição:</strong> Garantimos total privacidade em todas as suas compras.</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
+                            <span data-i18n-html="valueQuality"><strong class="font-semibold">Qualidade:</strong> Selecionamos apenas produtos de marcas confiáveis e testadas.</span>
+                        </li>
+                        <li class="flex items-start">
+                           <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
+                            <span data-i18n-html="valueSecurity"><strong class="font-semibold">Segurança:</strong> Utilizamos as mais avançadas tecnologias de segurança.</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
+                            <span data-i18n-html="valueRespect"><strong class="font-semibold">Respeito:</strong> Tratamos todos os clientes com dignidade e profissionalismo.</span>
+                        </li>
+                    </ul>
+                </div>
+                 <div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="privacyCommitmentTitle">Compromisso com a Privacidade</h3>
+                    <p data-i18n="privacyCommitmentText">Entendemos a importância da privacidade em compras íntimas. Por isso, utilizamos embalagens discretas, faturamento sem descrição do produto e garantimos que suas informações pessoais estejam sempre protegidas.</p>
+                </div>
+            </div>
+            <!-- Right Column: Stats -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div class="stat-card bg-gray-800 p-6 rounded-lg text-center">
+                    <p class="text-4xl font-bold text-accent" data-i18n="statCustomers">10,000+</p>
+                    <p class="text-gray-400 mt-2" data-i18n="statCustomersLabel">Clientes Satisfeitos</p>
+                </div>
+                <div class="stat-card bg-gray-800 p-6 rounded-lg text-center">
+                    <p class="text-4xl font-bold text-accent" data-i18n="statProducts">500+</p>
+                    <p class="text-gray-400 mt-2" data-i18n="statProductsLabel">Produtos Premium</p>
+                </div>
+                <div class="stat-card bg-gray-800 p-6 rounded-lg text-center">
+                    <p class="text-4xl font-bold text-accent" data-i18n="statExperience">5 Anos</p>
+                    <p class="text-gray-400 mt-2" data-i18n="statExperienceLabel">de Experiência</p>
+                </div>
+                <div class="stat-card bg-gray-800 p-6 rounded-lg text-center">
+                    <p class="text-4xl font-bold text-accent" data-i18n="statGuarantee">100%</p>
+                    <p class="text-gray-400 mt-2" data-i18n="statGuaranteeLabel">Garantia de Satisfação</p>
+                </div>
+            </div>
         </div>
     </div>
 </section>
