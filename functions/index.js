@@ -16,7 +16,8 @@ const allowedOrigins = [
     "https://desire-loja-final.web.app",
     "https://darkdesire.pt",
     "http://localhost:5000",
-    "http://127.0.0.1:5000"
+    "http://127.0.0.1:5000",
+    "http://localhost:8000"
 ];
 
 const cors = require("cors")({

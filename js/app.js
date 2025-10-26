@@ -1108,34 +1108,6 @@ const app = {
         `;
     },
 
-    editProduct(productId) {
-        const product = this.products.find(p => p.id === productId);
-        if (!product) return;
-
-        const form = document.getElementById('admin-product-form');
-        form.id.value = productId;
-        form.name.value = product.name || '';
-        form.description.value = product.description || '';
-        form.price.value = product.price || 0;
-        form.category.value = product.category || '';
-        form.stock.value = product.stock || 0;
-        form.brand.value = product.brand || '';
-        form.color.value = product.color || '';
-        form.material.value = product.material || '';
-        form.imageUrl.value = product.image || '';
-        form.showUrgency.checked = !!product.showUrgency;
-        form.tags.value = (product.tags || []).join(', ');
-        const preview = document.getElementById('product-image-preview');
-        if (product.image) {
-            preview.src = product.image;
-            preview.classList.remove('hidden');
-        } else {
-            preview.classList.add('hidden');
-        }
-        document.getElementById('admin-form-title').textContent = 'Editar Produto';
-        form.scrollIntoView({ behavior: 'smooth' });
-    },
-
     renderRelatedProductsByCategory(currentProduct) {
         if (!currentProduct || !currentProduct.category) return '';
 
@@ -1300,10 +1272,51 @@ const app = {
         }
         contentArea.innerHTML = templateNode.innerHTML;
 
-        this.loadDropshipProducts();
+        this.renderAdminProductList();
         const form = document.getElementById('admin-product-form');
         form.addEventListener('submit', (e) => this.handleAdminFormSubmit(e));
         document.getElementById('clear-form-btn').addEventListener('click', () => this.clearAdminForm());
+
+        const aliExpressUrlInput = document.getElementById('aliexpress-url');
+        if (aliExpressUrlInput) {
+            aliExpressUrlInput.addEventListener('paste', async (e) => {
+                e.preventDefault();
+                const url = (e.clipboardData || window.clipboardData).getData('text');
+                if (!url || !url.includes('aliexpress.com')) {
+                    this.showToast('Por favor, cole um URL válido da AliExpress.', 'error');
+                    return;
+                }
+                aliExpressUrlInput.value = url;
+                this.showLoading();
+                try {
+                    const scrapeAliExpress = httpsCallable(this.functions, 'scrapeAliExpress');
+                    const result = await scrapeAliExpress({ url });
+                    const product = result.data;
+
+                    if (product.error) {
+                        throw new Error(product.error);
+                    }
+
+                    // Populate the form
+                    form.name.value = product.name || '';
+                    form.description.value = product.description || '';
+                    form.price.value = product.price || 0;
+                    // We just get one image for now from the scraper
+                    form.imageUrl.value = product.image || '';
+                    if (product.image) {
+                         document.getElementById('product-image-preview').src = product.image;
+                         document.getElementById('product-image-preview').classList.remove('hidden');
+                    }
+                    this.showToast('Produto importado com sucesso!');
+
+                } catch (error) {
+                    console.error("Erro ao importar da AliExpress:", error);
+                    this.showToast(`Erro ao importar: ${error.message}`, 'error');
+                } finally {
+                    this.hideLoading();
+                }
+            });
+        }
     },
 
     async initAdminOrdersPage() {
@@ -1320,151 +1333,6 @@ const app = {
         this.renderAdminOrders();
     },
 
-    async loadAllOrders(forceRefresh = false) {
-        const container = document.getElementById('admin-order-list');
-        if (!container) return;
-
-        try {
-            if (forceRefresh) this.showLoading();
-
-            const ordersRef = collection(this.db, 'orders');
-            const ordersQuery = query(ordersRef, orderBy('createdAt', 'desc'));
-            const snapshot = await getDocs(ordersQuery);
-
-            if (snapshot.empty) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🚚</div>
-                        <div class="empty-state-title">Nenhuma encomenda encontrada</div>
-                    </div>
-                `;
-                return;
-            }
-
-            let html = '';
-            const orders = [];
-
-            snapshot.forEach(doc => {
-                const order = doc.data();
-                orders.push({ id: doc.id, ...order });
-                html += this.renderAdminOrderCard(doc.id, order);
-            });
-
-            container.innerHTML = html;
-            this.allOrders = orders;
-
-        } catch (error) {
-            console.error('Error loading orders:', error);
-            container.innerHTML = '<div class="alert alert-error">❌ Erro ao carregar encomendas</div>';
-        } finally {
-            if (forceRefresh) this.hideLoading();
-        }
-    },
-
-    renderAdminOrderCard(orderId, order) {
-        const date = order.createdAt?.toDate?.() || new Date();
-        const shortId = orderId.substring(0, 8).toUpperCase();
-
-        let statusClass = 'badge-pending';
-        if (order.status === 'Enviada' || order.status === 'shipped') statusClass = 'badge-shipped';
-        else if (order.status === 'A aguardar envio') statusClass = 'badge-processing';
-
-        let itemsHtml = '';
-        if (order.items && order.items.length > 0) {
-            order.items.forEach(item => {
-                itemsHtml += `
-                    <div class="order-item">
-                        <div class="item-info">
-                            <div class="item-name">${item.name || 'Produto'}</div>
-                            <div class="item-details">
-                                Qtd: ${item.quantity || 1} × €${(item.price || 0).toFixed(2)}
-                            </div>
-                        </div>
-                        <div class="item-price">€${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</div>
-                    </div>
-                `;
-            });
-        }
-
-        return `
-            <div class="order-card">
-                <div class="order-header">
-                    <div class="order-info">
-                        <h3>#${shortId}</h3>
-                        <div class="order-meta">
-                            <span>📅 ${date.toLocaleDateString('pt-PT')}</span>
-                            <span>💰 €${(order.total || 0).toFixed(2)}</span>
-                            ${order.customerEmail ? `<span>👤 ${order.customerEmail}</span>` : ''}
-                        </div>
-                    </div>
-                    <span class="order-badge ${statusClass}">${order.status || 'Pendente'}</span>
-                </div>
-
-                ${itemsHtml ? `<div class="order-items">${itemsHtml}</div>` : ''}
-
-                ${order.shippingAddress ? `
-                    <div class="customer-info">
-                        <p><strong>Cliente:</strong> ${order.shippingAddress.name || 'N/A'}</p>
-                        <p><strong>Email:</strong> ${order.shippingAddress.email || order.customerEmail || 'N/A'}</p>
-                        <p><strong>Morada:</strong> ${this.formatAddress(order.shippingAddress)}</p>
-                        ${order.shippingAddress.phone ? `<p><strong>Telefone:</strong> ${order.shippingAddress.phone}</p>` : ''}
-                    </div>
-                ` : ''}
-
-                ${order.trackingNumber ? `
-                    <div class="alert alert-success">
-                        📦 <strong>Tracking:</strong> ${order.trackingNumber}
-                        ${order.trackingCarrier ? `(${order.trackingCarrier})` : ''}
-                    </div>
-                ` : ''}
-
-                <div class="order-actions">
-                    ${!order.trackingNumber ? `
-                        <button class="btn btn-success btn-sm" onclick="app.openTrackingModal('${orderId}')">
-                            📦 Adicionar Tracking
-                        </button>
-                    ` : ''}
-                    <button class="btn btn-primary btn-sm" onclick="app.updateOrderStatus('${orderId}', 'A aguardar envio')">
-                        ⏳ Marcar Processando
-                    </button>
-                    <button class="btn btn-outline btn-sm" onclick="app.copyOrderInfo('${orderId}')">
-                        📋 Copiar Info
-                    </button>
-                </div>
-            </div>
-        `;
-    },
-
-    openTrackingModal(orderId) {
-        document.getElementById('trackingOrderId').value = orderId;
-        document.getElementById('trackingModal').classList.add('active');
-        document.getElementById('trackingNumber').focus();
-    },
-
-    closeTrackingModal() {
-        document.getElementById('trackingModal').classList.remove('active');
-        document.getElementById('trackingForm').reset();
-    },
-
-    copyOrderInfo(orderId) {
-        const order = this.allOrders.find(o => o.id === orderId);
-        if (!order) return;
-
-        const info = `
-Encomenda #${orderId.substring(0, 8).toUpperCase()}
-Total: €${(order.total || 0).toFixed(2)}
-Status: ${order.status || 'Pendente'}
-Data: ${(order.createdAt?.toDate?.() || new Date()).toLocaleDateString('pt-PT')}
-${order.shippingAddress ? `Cliente: ${order.shippingAddress.name}\nEmail: ${order.shippingAddress.email}` : ''}
-        `;
-
-        navigator.clipboard.writeText(info.trim()).then(() => {
-            this.showToast('📋 Informação copiada!');
-        }).catch(() => {
-            this.showToast('❌ Erro ao copiar', 'error');
-        });
-    },
-
     async initAdminReviewsPage() {
         const contentArea = document.getElementById('admin-content-area');
         if (!contentArea) return;
@@ -1475,10 +1343,6 @@ ${order.shippingAddress ? `Cliente: ${order.shippingAddress.name}\nEmail: ${orde
         }
         contentArea.innerHTML = templateNode.innerHTML;
 
-        this.loadPendingReviews();
-    },
-
-    async loadPendingReviews() {
         this.showLoading();
         try {
             const q = query(collection(this.db, "product_ratings"), where("status", "==", "pending"), orderBy("createdAt", "desc"));
@@ -2144,86 +2008,6 @@ ${order.shippingAddress ? `Cliente: ${order.shippingAddress.name}\nEmail: ${orde
                 }).catch(err => { this.showToast('Falha na verificação reCAPTCHA.', 'error'); reject(err); });
             });
         });
-    },
-
-    async loadDropshipProducts(forceRefresh = false) {
-        const container = document.getElementById('admin-product-list');
-        if (!container) return;
-
-        try {
-            if (forceRefresh) this.showLoading();
-
-            const productsRef = collection(this.db, 'products');
-            const dropshipQuery = query(productsRef, where('isDropship', '==', true), orderBy('createdAt', 'desc'));
-            const snapshot = await getDocs(dropshipQuery);
-
-            if (snapshot.empty) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📦</div>
-                        <div class="empty-state-title">Nenhum produto dropship</div>
-                        <p>Adicione produtos usando o formulário acima.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            let html = '<div class="product-grid">';
-            const products = [];
-
-            snapshot.forEach(doc => {
-                const product = doc.data();
-                products.push({ id: doc.id, ...product });
-                html += this.renderAdminProductCard(doc.id, product);
-            });
-
-            html += '</div>';
-            container.innerHTML = html;
-
-        } catch (error) {
-            console.error('Error loading products:', error);
-            container.innerHTML = '<div class="alert alert-error">❌ Erro ao carregar produtos</div>';
-        } finally {
-            if (forceRefresh) this.hideLoading();
-        }
-    },
-
-    renderAdminProductCard(productId, product) {
-        const margin = (product.sellingPrice || product.price || 0) - (product.aliexpressPrice || product.cost || 0);
-        const marginPercent = (product.cost || product.aliexpressPrice) > 0 ?
-            ((margin / (product.cost || product.aliexpressPrice)) * 100).toFixed(0) : 0;
-
-        return `
-            <div class="product-card">
-                ${product.image ? `<img src="${product.image}" alt="${product.name}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; margin-bottom: 1rem;">` : ''}
-                <h4>${product.name}</h4>
-                <div class="product-category">${product.category || 'Sem categoria'}</div>
-
-                <div class="product-pricing">
-                    <span>Custo:</span>
-                    <strong>€${(product.cost || product.aliexpressPrice || 0).toFixed(2)}</strong>
-                </div>
-                <div class="product-pricing">
-                    <span>Venda:</span>
-                    <strong style="color: var(--color-success);">€${(product.price || product.sellingPrice || 0).toFixed(2)}</strong>
-                </div>
-                <div class="product-margin">
-                    <span>Margem:</span>
-                    <span>€${margin.toFixed(2)} (${marginPercent}%)</span>
-                </div>
-
-                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                    ${product.aliexpressUrl ? `
-                        <a href="${product.aliexpressUrl}" target="_blank" class="btn btn-outline btn-sm" style="flex: 1;">
-                            🔗 AliExpress
-                        </a>
-                    ` : ''}
-                    <button class="btn btn-warning btn-sm" onclick="app.editProduct('${productId}')" style="flex: 1;">
-                        ✏️ Editar
-                    </button>
-                </div>
-            </div>
-        `;
     },
 
     trackEvent(eventName, eventParams) {
