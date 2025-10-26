@@ -1,5 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const axios = require("axios");
+const cheerio = require("cheerio");
 const renderer = require("./renderer");
 
 // Initialize the application
@@ -269,6 +271,62 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
 });
 
 /**
- * Server-side rendering function for the application.
+ * Scrapes product data from an AliExpress URL.
+ * This is a callable function that requires the user to be authenticated.
  */
-exports.ssr = functions.https.onRequest(renderer.render);
+exports.scrapeAliExpress = functions.https.onCall(async (data, context) => {
+    // Check for authentication
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+
+    const {
+        url
+    } = data;
+    if (!url || !url.startsWith('https://www.aliexpress.com/')) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a valid AliExpress URL.');
+    }
+
+    try {
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        });
+
+        const html = response.data;
+        const $ = cheerio.load(html);
+
+        // Extract the title
+        const title = $('h1').text().trim();
+
+        // Extract the price
+        const priceText = $('.product-price-value').first().text().trim();
+        const price = parseFloat(priceText.replace(/[^0-9,.-]+/g, "").replace(",", "."));
+
+
+        // Extract the description from the meta tag
+        const description = $('meta[property="og:description"]').attr('content') || 'No description found';
+
+        // Extract image URLs from the page
+        const images = [];
+        $('.gallery_Gallery__picList__h87k2 img').each((i, el) => {
+            const imageUrl = $(el).attr('src');
+            if (imageUrl) {
+                images.push(imageUrl.replace('_50x50.jpg', '_800x800.jpg'));
+            }
+        });
+
+
+        // Return the scraped data
+        return {
+            title,
+            price,
+            description,
+            images
+        };
+    } catch (error) {
+        console.error('Error scraping AliExpress:', error);
+        throw new functions.https.HttpsError('internal', 'Failed to scrape the AliExpress page.');
+    }
+});
