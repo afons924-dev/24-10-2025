@@ -2,19 +2,27 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Allow public read access to all files, so anyone can see product/review images.
+    // Public read access to all files is generally acceptable for images.
     match /{allPaths=**} {
       allow read;
     }
 
-    // Allow authenticated users to write to the 'products' and 'reviews' folders.
-    // This rule also enforces a size limit of 2MB for uploads.
+    // Only allow admins to upload product images.
+    // This is more secure than allowing any authenticated user.
     match /products/{allPaths=**} {
-      allow write: if request.auth != null && request.resource.size < 2 * 1024 * 1024;
+      allow write: if request.auth != null && request.auth.token.isAdmin == true
+                   && request.resource.size < 2 * 1024 * 1024; // 2MB size limit
     }
 
-    match /reviews/{allPaths=**} {
-      allow write: if request.auth != null && request.resource.size < 2 * 1024 * 1024;
+    // Allow authenticated users to upload review images, but apply stricter rules.
+    match /reviews/{fileName} {
+      // Users can only write files where the filename is prefixed with their UID.
+      // This prevents users from overwriting each other's files.
+      // The app-side logic must enforce this naming convention (e.g., `${userId}_${timestamp}_${originalFilename}`).
+      allow write: if request.auth != null
+                   && fileName.startsWith(request.auth.uid + '_')
+                   && request.resource.size < 2 * 1024 * 1024 // 2MB size limit
+                   && request.resource.contentType.matches('image/.*'); // Only allow images
     }
   }
 }

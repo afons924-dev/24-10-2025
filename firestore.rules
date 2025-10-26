@@ -2,54 +2,61 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allow public read-only access to products.
+    // Allow public read-only access to products. Admins can write.
     match /products/{productId} {
       allow read: if true;
       allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }
 
-    // Allow users to create notification requests, but not read, update or delete them.
-    // This is a public-facing feature.
+    // Allow public users to create notification requests for out-of-stock items.
+    // No one but backend processes should be able to read or modify these.
     match /notifications/{notificationId} {
       allow create: if true;
       allow read, update, delete: if false;
     }
 
-    // Allow users to read and write to their own user document.
+    // Users can read and write to their own user document.
     match /users/{userId} {
       allow read, update, write: if request.auth.uid == userId;
     }
 
-    // Allow users to read and write their own orders.
+    // Users can read their own orders. Admins can read and update any order.
+    // Order creation is handled by secure cloud functions, so client-side `create` is not needed.
     match /orders/{orderId} {
-        allow read, write: if request.auth.uid == resource.data.userId;
+      allow read: if (request.auth.uid != null && request.auth.token.isAdmin == true) || (request.auth.uid == resource.data.userId);
+      allow update: if request.auth.uid != null && request.auth.token.isAdmin == true;
+      allow create, delete: if false;
     }
 
-    // Allow admin to read all orders
-    match /orders/{orderId} {
-        allow read: if request.auth.uid != null && request.auth.token.isAdmin == true;
-    }
-
-    // Allow public read-only access to approved product ratings, and let users read their own ratings.
+    // Public can read approved reviews. Users can read their own reviews regardless of status.
+    // Authenticated users can create reviews. Admins can manage all reviews.
     match /product_ratings/{ratingId} {
       allow read: if resource.data.status == 'approved' || (request.auth != null && request.auth.uid == resource.data.userId);
       allow create: if request.auth.uid != null;
       allow update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }
 
-    // Allow public read-only access to flash sale.
+    // Public can read flash sale data. Admins can write to it.
     match /flash_sale/current {
         allow read: if true;
         allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }
 
-    // Allow admin to write to contact messages, newsletter subscriptions
+    // Public users can create contact messages. Admins can manage them.
      match /contact_messages/{messageId} {
-        allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
+        allow create: if true;
+        allow read, update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
      }
 
+     // Public users can create newsletter subscriptions. Admins can manage them.
      match /newsletter_subscriptions/{subscriptionId} {
-        allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
+        allow create: if true;
+        allow read, update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
+     }
+
+     // Disallow access to stripe_sessions from the client.
+     match /stripe_sessions/{sessionId} {
+        allow read, write: if false;
      }
   }
 }

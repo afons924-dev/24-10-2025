@@ -208,7 +208,7 @@ const fulfillOrder = async (paymentIntent) => {
                 },
             });
 
-            const ADMIN_EMAIL = "your-admin-email@example.com";
+            const ADMIN_EMAIL = "YOUR_ADMIN_EMAIL"; // TODO: Replace with your actual admin email
             await mailCollection.add({
                 to: ADMIN_EMAIL,
                 message: {
@@ -330,4 +330,12 @@ exports.scrapeAliExpress = functions.https.onCall(async (data, context) => {
         console.error('Error scraping AliExpress:', error);
         throw new functions.https.HttpsError('internal', 'Failed to scrape the AliExpress page.');
     }
+});
+
+/**
+ * Handles Server-Side Rendering (SSR) for SEO and social sharing.
+ * It uses the renderer module to generate HTML for specific routes.
+ */
+exports.ssr = functions.https.onRequest(async (req, res) => {
+    return renderer.render(req, res);
 });

@@ -8,12 +8,10 @@ import { getFirebaseErrorMessage, logout } from './modules/auth.js';
 import { on } from './modules/events.js';
 
 
-// TODO: Lançamento: Substitua esta chave pela sua chave do site reCAPTCHA de produção
-const RECAPTCHA_SITE_KEY = '6LeJXJIrAAAAAMh4x_AG8ZJH_RmdIJ50MICzriCi';
-// TODO: Lançamento: Substitua este ID pelo seu ID de acompanhamento do Google Analytics de produção
-const GOOGLE_ANALYTICS_ID = 'G-2NSFKWXG77';
-// TODO: Lançamento: Substitua esta chave pela sua chave pública do Stripe de produção e considere movê-la para uma variável de ambiente
-const STRIPE_PUBLIC_KEY = 'pk_test_51RyHuf42pRHAcenNzc5G5jckCpZFPtsHSLhBpM2QmwXRfnikV2FuEhqwEN18GPmd3V81yNyypdnGHaPh3uV1au1p002LQ5jyFk';
+// Production keys should be configured in a secure way, e.g. using environment variables or a configuration service.
+const RECAPTCHA_SITE_KEY = 'YOUR_RECAPTCHA_SITE_KEY'; // Replace with your reCAPTCHA site key
+const GOOGLE_ANALYTICS_ID = 'YOUR_GOOGLE_ANALYTICS_ID'; // Replace with your Google Analytics ID
+const STRIPE_PUBLIC_KEY = 'YOUR_STRIPE_PUBLIC_KEY'; // Replace with your Stripe public key
 
 
 function startCountdown(endTime, elementId) {
@@ -121,7 +119,13 @@ const app = {
             console.error('Stripe.js not loaded');
             return;
         }
-        this.stripe = Stripe(STRIPE_PUBLIC_KEY);
+        try {
+            // Initialize Stripe. If the key is a placeholder, this will fail.
+            this.stripe = Stripe(STRIPE_PUBLIC_KEY);
+        } catch (error) {
+            console.error("Failed to initialize Stripe, likely due to a placeholder key. Payment functionality will be disabled.", error.message);
+            this.stripe = null; // Ensure stripe is null if initialization fails
+        }
     },
 
     initThemeSwitcher() {
@@ -1173,7 +1177,8 @@ const app = {
                    this.hideLoading();
                    return;
                 }
-                const storageRef = ref(this.storage, `reviews/${this.user.uid}_${Date.now()}_${imageFile.name}`);
+                const fileName = `${this.user.uid}_${Date.now()}_${imageFile.name}`;
+                const storageRef = ref(this.storage, `reviews/${fileName}`);
                 const snapshot = await uploadBytes(storageRef, imageFile);
                 imageUrl = await getDownloadURL(snapshot.ref);
             }
