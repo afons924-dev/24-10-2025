@@ -339,3 +339,35 @@ exports.scrapeAliExpress = functions.region('europe-west3').https.onCall(async (
 exports.ssr = functions.region('europe-west3').https.onRequest(async (req, res) => {
     return renderer.render(req, res);
 });
+
+/**
+ * Sets a custom user claim `isAdmin` to true for a given user email.
+ * This is an administrative function and should be protected.
+ * Only callable by an already authenticated admin.
+ */
+exports.setAdminClaim = functions.region('europe-west3').https.onCall(async (data, context) => {
+    // Check if the caller is an admin.
+    // Note: The first admin must be set manually via Firebase console or gcloud CLI.
+    if (context.auth.token.isAdmin !== true) {
+        throw new functions.https.HttpsError('permission-denied', 'Only admins can set other users as admins.');
+    }
+
+    const { email } = data;
+    if (!email) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with an "email" argument.');
+    }
+
+    try {
+        const user = await admin.auth().getUserByEmail(email);
+        await admin.auth().setCustomUserClaims(user.uid, { isAdmin: true });
+
+        // Update the user document in Firestore as well for consistency
+        const userRef = db.collection('users').doc(user.uid);
+        await userRef.set({ isAdmin: true }, { merge: true });
+
+        return { message: `Success! ${email} has been made an admin.` };
+    } catch (error) {
+        console.error("Error setting admin claim:", error);
+        throw new functions.https.HttpsError('internal', 'An internal error occurred while trying to set the admin claim.');
+    }
+});
