@@ -1,60 +1,68 @@
 rules_version = '2';
 service cloud.firestore {
+  // Helper function to check if the requesting user is an admin by looking at their user document.
+  function isAdmin() {
+    // This function checks if the user is authenticated and if their document in the 'users' collection
+    // has the field 'isAdmin' set to the boolean value 'true'.
+    return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+  }
+
   match /databases/{database}/documents {
 
     // Allow public read-only access to products. Admins can write.
     match /products/{productId} {
       allow read: if true;
-      allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
+      allow write: if isAdmin();
     }
 
-    // Allow public users to create notification requests for out-of-stock items.
-    // No one but backend processes should be able to read or modify these.
+    // Backend processes only.
     match /notifications/{notificationId} {
       allow create: if true;
       allow read, update, delete: if false;
     }
 
-    // Users can read and write to their own user document.
+    // Users can read and write to their own user document. Admins can read any user document.
     match /users/{userId} {
       allow read, update, write: if request.auth.uid == userId;
+      allow read: if isAdmin(); // Admins can read user profiles
     }
 
     // Users can read their own orders. Admins can read and update any order.
-    // Order creation is handled by secure cloud functions, so client-side `create` is not needed.
     match /orders/{orderId} {
-      allow read: if (request.auth.uid != null && request.auth.token.isAdmin == true) || (request.auth.uid == resource.data.userId);
-      allow update: if request.auth.uid != null && request.auth.token.isAdmin == true;
+      // A collection-wide query from an admin will work with this rule.
+      // A user can only get their own specific order document.
+      allow read, update: if isAdmin();
+      allow read: if request.auth.uid == resource.data.userId;
       allow create, delete: if false;
     }
 
-    // Public can read approved reviews. Users can read their own reviews regardless of status.
-    // Authenticated users can create reviews. Admins can manage all reviews.
+    // Admins can read/write all reviews. Public can read approved reviews.
+    // Users can create reviews and read their own regardless of status.
     match /product_ratings/{ratingId} {
+      allow read, update, delete: if isAdmin();
       allow read: if resource.data.status == 'approved' || (request.auth != null && request.auth.uid == resource.data.userId);
       allow create: if request.auth.uid != null;
-      allow update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }
 
     // Public can read flash sale data. Admins can write to it.
     match /flash_sale/current {
-        allow read: if true;
-        allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
-    // Public users can create contact messages. Admins can manage them.
+    // Public users can create messages. Admins can manage them.
      match /contact_messages/{messageId} {
         allow create: if true;
-        allow read, update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
+        allow read, update, delete: if isAdmin();
      }
 
-     // Public users can create newsletter subscriptions. Admins can manage them.
+     // Public users can subscribe. Admins can manage them.
      match /newsletter_subscriptions/{subscriptionId} {
         allow create: if true;
-        allow read, update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
+        allow read, update, delete: if isAdmin();
      }
 
-     // Disallow access to stripe_sessions from the client.
+     // Backend processes only.
      match /stripe_sessions/{sessionId} {
         allow read, write: if false;
      }
