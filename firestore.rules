@@ -1,68 +1,62 @@
 rules_version = '2';
 service cloud.firestore {
-  // Helper function to check if the requesting user is an admin by looking at their user document.
+  // Função auxiliar para verificar se o utilizador é um administrador,
+  // lendo o campo 'isAdmin' no seu documento de perfil.
   function isAdmin() {
-    // This function checks if the user is authenticated and if their document in the 'users' collection
-    // has the field 'isAdmin' set to the boolean value 'true'.
     return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
   }
 
   match /databases/{database}/documents {
 
-    // Allow public read-only access to products. Admins can write.
+    // Produtos: Leitura pública, escrita apenas para admins.
     match /products/{productId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Backend processes only.
-    match /notifications/{notificationId} {
-      allow create: if true;
-      allow read, update, delete: if false;
-    }
-
-    // Users can read and write to their own user document. Admins can read any user document.
+    // Utilizadores: Cada utilizador pode gerir o seu próprio documento. Admins podem ler a lista de utilizadores.
     match /users/{userId} {
       allow read, update, write: if request.auth.uid == userId;
-      allow read: if isAdmin(); // Admins can read user profiles
+      allow list: if isAdmin();
     }
 
-    // Users can read their own orders. Admins can read and update any order.
+    // Encomendas: Admins podem ler a lista e atualizar qualquer encomenda. Utilizadores só podem ler as suas próprias.
     match /orders/{orderId} {
-      // A collection-wide query from an admin will work with this rule.
-      // A user can only get their own specific order document.
-      allow read, update: if isAdmin();
+      allow list, read, update: if isAdmin();
       allow read: if request.auth.uid == resource.data.userId;
-      allow create, delete: if false;
+      allow create, delete: if false; // Apenas as Cloud Functions podem criar/apagar.
     }
 
-    // Admins can read/write all reviews. Public can read approved reviews.
-    // Users can create reviews and read their own regardless of status.
+    // Avaliações: Admins podem gerir todas. O público pode ler as aprovadas. Utilizadores podem criar e ler as suas.
     match /product_ratings/{ratingId} {
-      allow read, update, delete: if isAdmin();
+      allow list, read, update, delete: if isAdmin();
       allow read: if resource.data.status == 'approved' || (request.auth != null && request.auth.uid == resource.data.userId);
       allow create: if request.auth.uid != null;
     }
 
-    // Public can read flash sale data. Admins can write to it.
-    match /flash_sale/current {
-      allow read: if true;
-      allow write: if isAdmin();
+    // Mensagens de Contacto: O público pode criar, admins podem gerir.
+    match /contact_messages/{messageId} {
+      allow create: if true;
+      allow read, list, update, delete: if isAdmin();
     }
 
-    // Public users can create messages. Admins can manage them.
-     match /contact_messages/{messageId} {
-        allow create: if true;
-        allow read, update, delete: if isAdmin();
-     }
+    // Subscrições de Newsletter: O público pode criar, admins podem gerir.
+    match /newsletter_subscriptions/{subscriptionId} {
+      allow create: if true;
+      allow read, list, update, delete: if isAdmin();
+    }
 
-     // Public users can subscribe. Admins can manage them.
-     match /newsletter_subscriptions/{subscriptionId} {
-        allow create: if true;
-        allow read, update, delete: if isAdmin();
-     }
+    // Promoção Relâmpago: Leitura pública, escrita para admins.
+    match /flash_sale/current {
+        allow read: if true;
+        allow write: if isAdmin();
+    }
 
-     // Backend processes only.
+    // Coleções internas, sem acesso do cliente.
+    match /notifications/{notificationId} {
+      allow create: if true; // Permitir que qualquer pessoa crie um pedido de notificação.
+      allow read, update, delete: if false;
+    }
      match /stripe_sessions/{sessionId} {
         allow read, write: if false;
      }
