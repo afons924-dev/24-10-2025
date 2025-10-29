@@ -57,7 +57,7 @@ try {
  * It now securely calculates the total on the server-side and uses a temporary
  * Firestore document to pass cart data, avoiding metadata limits.
  */
-exports.createStripePaymentIntent = functions.https.onRequest((req, res) => {
+exports.createStripePaymentIntent = functions.region('europe-west3').https.onRequest((req, res) => {
     cors(req, res, async () => {
         const { userId, cart } = req.body;
 
@@ -228,7 +228,7 @@ const fulfillOrder = async (paymentIntent) => {
 /**
  * Handles webhook events from Stripe to update order status.
  */
-exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
+exports.stripeWebhook = functions.region('europe-west3').https.onRequest(async (req, res) => {
     let event;
 
     // Securely verify the webhook signature.
@@ -275,7 +275,7 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
  * Scrapes product data from an AliExpress URL.
  * This is a callable function that requires the user to be authenticated.
  */
-exports.scrapeAliExpress = functions.https.onCall(async (data, context) => {
+exports.scrapeAliExpress = functions.region('europe-west3').https.onCall(async (data, context) => {
     // Check for authentication
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
@@ -336,6 +336,6 @@ exports.scrapeAliExpress = functions.https.onCall(async (data, context) => {
  * Handles Server-Side Rendering (SSR) for SEO and social sharing.
  * It uses the renderer module to generate HTML for specific routes.
  */
-exports.ssr = functions.https.onRequest(async (req, res) => {
+exports.ssr = functions.region('europe-west3').https.onRequest(async (req, res) => {
     return renderer.render(req, res);
 });
