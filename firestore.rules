@@ -3,6 +3,8 @@ service cloud.firestore {
   // Função auxiliar para verificar se o utilizador é um administrador,
   // lendo o campo 'isAdmin' no seu documento de perfil.
   function isAdmin() {
+    // Esta função verifica se o utilizador está autenticado e se o seu documento na coleção 'users'
+    // tem o campo 'isAdmin' definido como o valor booleano 'true'.
     return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
   }
 
@@ -17,13 +19,13 @@ service cloud.firestore {
     // Utilizadores: Cada utilizador pode gerir o seu próprio documento. Admins podem ler a lista de utilizadores.
     match /users/{userId} {
       allow read, update, write: if request.auth.uid == userId;
-      allow list: if isAdmin();
+      allow list, read: if isAdmin(); // Adicionado 'read' para que admins possam ver perfis individuais.
     }
 
-    // Encomendas: Admins podem ler a lista e atualizar qualquer encomenda. Utilizadores só podem ler as suas próprias.
+    // Encomendas: Admins podem listar e gerir todas. Utilizadores só podem ler as suas próprias.
     match /orders/{orderId} {
-      allow list, read, update: if isAdmin();
-      allow read: if request.auth.uid == resource.data.userId;
+      allow list, read, update: if isAdmin(); // Acesso total para admins.
+      allow read: if request.auth.uid == resource.data.userId; // Utilizador pode ler a sua própria encomenda.
       allow create, delete: if false; // Apenas as Cloud Functions podem criar/apagar.
     }
 
@@ -54,7 +56,7 @@ service cloud.firestore {
 
     // Coleções internas, sem acesso do cliente.
     match /notifications/{notificationId} {
-      allow create: if true; // Permitir que qualquer pessoa crie um pedido de notificação.
+      allow create: if true;
       allow read, update, delete: if false;
     }
      match /stripe_sessions/{sessionId} {
