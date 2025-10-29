@@ -2702,8 +2702,13 @@ const app = {
             this.discount = { code: 'BEMVINDO10', percentage: 10, amount: 0 };
             this.showToast('Desconto de 10% de primeira compra aplicado!', 'success');
 
-            if (window.location.hash.includes('/cart')) this.renderCartPage();
-            if (window.location.hash.includes('/checkout')) this.renderCheckoutPage();
+            // Re-render the cart page if currently on it.
+            if (window.location.hash.includes('/cart')) {
+                this.renderCartPage();
+            }
+            // For checkout, the summary will be updated by the calling function.
+            // No need to re-render the whole page here.
+
             this.renderSidebarCart();
         }
     },
