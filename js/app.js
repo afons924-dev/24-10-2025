@@ -3638,7 +3638,7 @@ const app = {
 
             // Call the cloud function to create a payment intent.
             // Note: The URL might need to be updated based on your Firebase project region.
-            const response = await fetch('https://us-central1-desire-loja-final.cloudfunctions.net/createStripePaymentIntent', {
+            const response = await fetch('https://europe-west3-desire-loja-final.cloudfunctions.net/createStripePaymentIntent', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
