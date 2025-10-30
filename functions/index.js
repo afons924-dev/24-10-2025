@@ -59,7 +59,7 @@ try {
  */
 exports.createStripePaymentIntent = functions.region('europe-west3').https.onRequest((req, res) => {
     cors(req, res, async () => {
-        const { userId, cart } = req.body;
+        const { userId, cart, loyaltyPoints: loyaltyPointsToUse } = req.body;
 
         if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
             res.status(400).send({ error: "Missing or invalid parameters: userId and cart are required." });
@@ -67,6 +67,14 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
         }
 
         try {
+            const userRef = db.collection("users").doc(userId);
+            const userDoc = await userRef.get();
+            if (!userDoc.exists()) {
+                res.status(404).send({ error: "User not found." });
+                return;
+            }
+            const userProfile = userDoc.data();
+
             // Calculate total amount on the server by fetching prices from Firestore
             let amount = 0;
             for (const item of cart) {
@@ -76,10 +84,25 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
                     amount += productDoc.data().price * item.quantity;
                 }
             }
+
+            // Apply loyalty points discount on the server
+            const availablePoints = userProfile.loyaltyPoints || 0;
+            const pointsToRedeem = loyaltyPointsToUse || 0;
+
+            if (pointsToRedeem > 0) {
+                if (pointsToRedeem > availablePoints) {
+                    res.status(400).send({ error: "Insufficient loyalty points." });
+                    return;
+                }
+                const discountAmount = pointsToRedeem / 100; // 100 points = 1€
+                amount -= discountAmount;
+            }
+
+            amount = Math.max(amount, 0); // Ensure amount is not negative
             const amountInCents = Math.round(amount * 100);
 
-            // Ensure the amount is above Stripe's minimum
-            if (amountInCents < 50) { // €0.50 minimum
+            // Ensure the amount is above Stripe's minimum if it's not free
+            if (amountInCents > 0 && amountInCents < 50) { // €0.50 minimum
                 res.status(400).send({ error: `Amount is too small. Minimum charge is €0.50. Amount calculated: €${amount.toFixed(2)}` });
                 return;
             }
@@ -92,11 +115,12 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
                 metadata: { userId } // Only store userId in metadata
             });
 
-            // Store the cart details in a temporary Firestore document
+            // Store the cart details and points used in a temporary Firestore document
             const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
             await sessionRef.set({
                 userId,
                 cart,
+                loyaltyPointsUsed: pointsToRedeem,
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
 
@@ -186,7 +210,11 @@ const fulfillOrder = async (paymentIntent) => {
 
             productUpdates.forEach(update => transaction.update(update.ref, update.data));
 
-            const newPoints = (userProfile.loyaltyPoints || 0) + pointsToAward;
+            // Calculate final loyalty points: subtract used points and add newly awarded points.
+            const pointsUsed = sessionDoc.data().loyaltyPointsUsed || 0;
+            const currentPoints = userProfile.loyaltyPoints || 0;
+            const newPoints = currentPoints - pointsUsed + pointsToAward;
+
             transaction.update(userRef, { loyaltyPoints: newPoints, cart: [] });
         });
 

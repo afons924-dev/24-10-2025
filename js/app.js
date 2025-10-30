@@ -2355,14 +2355,15 @@ const app = {
         const openSearch = () => { searchOverlay.classList.remove('hidden'); searchOverlay.classList.add('flex'); searchInput.focus(); };
         const closeSearch = () => {
             searchOverlay.classList.add('hidden');
-            if (window.location.hash.includes('/search')) {
-                searchInput.value = '';
-                this.navigateTo('/products');
-            }
+            searchOverlay.classList.remove('flex');
         };
         searchIcon.addEventListener('click', openSearch);
         closeSearchBtn.addEventListener('click', closeSearch);
-        searchOverlay.addEventListener('click', (e) => { if (e.target === searchOverlay) closeSearch(); });
+        searchOverlay.addEventListener('click', (e) => {
+            if (e.target === searchOverlay && !window.location.hash.includes('/search')) {
+                closeSearch();
+            }
+        });
 
         const debouncedSearch = this.debounce(() => {
             const searchTerm = searchInput.value.trim();
@@ -3752,7 +3753,7 @@ const app = {
                 break;
             case "processing":
                 this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
-                this.navigateTo('/');
+                this.navigateTo('/account?tab=orders');
                 break;
             case "requires_payment_method":
                 this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
