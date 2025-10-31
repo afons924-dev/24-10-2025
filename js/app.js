@@ -79,6 +79,8 @@ const app = {
     products: [], cart: [], user: null, userProfile: null,
     orders: [], allOrders: [], authReady: false, checkoutStep: 1,
     exitIntentShown: false,
+    adminImageFiles: [], // Stores new File objects for upload
+    adminExistingImages: [], // Stores existing image URLs for the product being edited
     translations: {},
     filters: { category: 'all', minPrice: 0, maxPrice: 0, brand: [], color: [], material: [] },
     filteredProducts: [],
@@ -1280,9 +1282,36 @@ const app = {
         contentArea.innerHTML = templateNode.innerHTML;
 
         this.renderAdminProductList();
+        this.clearAdminForm(); // Also initializes image arrays and gallery
+
         const form = document.getElementById('admin-product-form');
         form.addEventListener('submit', (e) => this.handleAdminFormSubmit(e));
         document.getElementById('clear-form-btn').addEventListener('click', () => this.clearAdminForm());
+
+        // Image Upload Logic
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('product-image-file');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => this.handleAdminImageFiles(e.target.files));
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('border-accent'));
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('border-accent'));
+        });
+
+        dropZone.addEventListener('drop', (e) => this.handleAdminImageFiles(e.dataTransfer.files));
+
 
         const aliExpressUrlInput = document.getElementById('aliexpress-url');
         if (aliExpressUrlInput) {
@@ -1304,16 +1333,16 @@ const app = {
                         throw new Error(product.error);
                     }
 
-                    // Populate the form
+                    // Populate the form with scraped data
                     form.name.value = product.name || '';
                     form.description.value = product.description || '';
                     form.price.value = product.price || 0;
-                    // We just get one image for now from the scraper
-                    form.imageUrl.value = product.image || '';
-                    if (product.image) {
-                         document.getElementById('product-image-preview').src = product.image;
-                         document.getElementById('product-image-preview').classList.remove('hidden');
-                    }
+
+                    // Handle scraped images
+                    this.adminImageFiles = []; // Clear any manually added files
+                    this.adminExistingImages = product.images || []; // Use the array of images
+                    this.renderAdminImageGallery();
+
                     this.showToast('Produto importado com sucesso!');
 
                 } catch (error) {
@@ -1324,6 +1353,89 @@ const app = {
                 }
             });
         }
+    },
+
+    handleAdminImageFiles(files) {
+        const MAX_FILES = 10;
+        const MAX_SIZE_MB = 2;
+
+        if (this.adminExistingImages.length + this.adminImageFiles.length + files.length > MAX_FILES) {
+            this.showToast(`Não pode carregar mais do que ${MAX_FILES} imagens no total.`, 'error');
+            return;
+        }
+
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) {
+                this.showToast(`O ficheiro '${file.name}' não é uma imagem.`, 'error');
+                return;
+            }
+            if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+                this.showToast(`A imagem '${file.name}' excede o limite de ${MAX_SIZE_MB}MB.`, 'error');
+                return;
+            }
+            this.adminImageFiles.push(file);
+        });
+
+        this.renderAdminImageGallery();
+    },
+
+    renderAdminImageGallery() {
+        const galleryPreview = document.getElementById('image-gallery-preview');
+        if (!galleryPreview) return;
+
+        galleryPreview.innerHTML = ''; // Clear current previews
+
+        // Render existing images (from URLs)
+        this.adminExistingImages.forEach((url, index) => {
+            const isMain = index === 0;
+            const imageWrapper = document.createElement('div');
+            imageWrapper.className = `relative group border-2 ${isMain ? 'border-accent' : 'border-transparent'} rounded-md overflow-hidden`;
+            imageWrapper.innerHTML = `
+                <img src="${url}" class="w-full h-24 object-cover" alt="Pré-visualização de imagem existente">
+                <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" title="Eliminar imagem" class="delete-existing-image-btn text-white hover:text-red-500" data-url="${url}"><i class="fas fa-trash"></i></button>
+                    ${!isMain ? `<button type="button" title="Definir como principal" class="set-main-image-btn text-white hover:text-accent" data-url="${url}"><i class="fas fa-star"></i></button>` : ''}
+                </div>
+                ${isMain ? '<div class="absolute top-1 right-1 bg-accent text-white text-xs px-1.5 py-0.5 rounded">Principal</div>' : ''}
+            `;
+            galleryPreview.appendChild(imageWrapper);
+        });
+
+        // Render new files to be uploaded (from File objects)
+        this.adminImageFiles.forEach((file, index) => {
+            const imageWrapper = document.createElement('div');
+            imageWrapper.className = 'relative group border-2 border-dashed border-gray-500 rounded-md overflow-hidden';
+            imageWrapper.innerHTML = `
+                <img src="${URL.createObjectURL(file)}" class="w-full h-24 object-cover" alt="Pré-visualização de novo ficheiro">
+                <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" title="Remover ficheiro" class="delete-new-image-btn text-white hover:text-red-500" data-index="${index}"><i class="fas fa-times-circle"></i></button>
+                </div>
+            `;
+            galleryPreview.appendChild(imageWrapper);
+        });
+
+        // Add event listeners
+        document.querySelectorAll('.delete-existing-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const url = e.currentTarget.dataset.url;
+            this.adminExistingImages = this.adminExistingImages.filter(imgUrl => imgUrl !== url);
+            // TODO: In a real-world scenario, you might want to delete the file from Storage here,
+            // but that's complex as it might be used elsewhere. For now, we just unlink it from the product.
+            this.renderAdminImageGallery();
+        }));
+
+        document.querySelectorAll('.delete-new-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const index = parseInt(e.currentTarget.dataset.index);
+            this.adminImageFiles.splice(index, 1);
+            this.renderAdminImageGallery();
+        }));
+
+        document.querySelectorAll('.set-main-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const url = e.currentTarget.dataset.url;
+            const oldMain = this.adminExistingImages[0];
+            this.adminExistingImages = this.adminExistingImages.filter(imgUrl => imgUrl !== url);
+            this.adminExistingImages.unshift(url);
+            this.renderAdminImageGallery();
+        }));
     },
 
     async initAdminOrdersPage() {
@@ -1593,22 +1705,34 @@ const app = {
     async handleAdminFormSubmit(e) {
         e.preventDefault();
         const form = e.target;
-        if (!this.validateForm(form)) { this.showToast('Por favor, preencha todos os campos obrigatórios.', 'error'); return; }
+        if (!this.validateForm(form)) {
+            this.showToast('Por favor, preencha todos os campos obrigatórios.', 'error');
+            return;
+        }
+        if (this.adminExistingImages.length === 0 && this.adminImageFiles.length === 0) {
+            this.showToast('É necessário pelo menos uma imagem para o produto.', 'error');
+            return;
+        }
+
         this.showLoading();
         const productId = form.id.value;
-        const fileInput = form.imageFile;
-        const file = fileInput.files[0];
-        let imageUrl = form.imageUrl.value;
 
-        if (file) {
+        let finalImageUrls = [...this.adminExistingImages];
+
+        // Upload new files
+        for (const file of this.adminImageFiles) {
             try {
                 const storageRef = ref(this.storage, `products/${Date.now()}_${file.name}`);
                 const snapshot = await uploadBytes(storageRef, file);
-                imageUrl = await getDownloadURL(snapshot.ref);
-            } catch (uploadError) { console.error("Erro no upload da imagem:", uploadError); this.showToast('Erro ao fazer upload da imagem. Verifique as regras de Storage e a configuração CORS.', 'error'); this.hideLoading(); return; }
+                const downloadURL = await getDownloadURL(snapshot.ref);
+                finalImageUrls.push(downloadURL);
+            } catch (uploadError) {
+                console.error("Erro no upload da imagem:", uploadError);
+                this.showToast(`Erro ao fazer upload de '${file.name}'.`, 'error');
+                this.hideLoading();
+                return;
+            }
         }
-
-        if (!imageUrl && !productId) { this.showToast('Uma imagem é obrigatória para criar um novo produto.', 'error'); this.hideLoading(); return; }
 
         const productData = {
             name: form.name.value,
@@ -1621,14 +1745,12 @@ const app = {
             material: form.material.value,
             tags: form.tags.value.split(',').map(tag => tag.trim()).filter(tag => tag),
             showUrgency: form.showUrgency.checked,
+            images: finalImageUrls, // The final array of image URLs
+            // Preserve rating when updating
             averageRating: productId ? (this.products.find(p => p.id === productId)?.averageRating || 0) : 0,
-            ratingCount: productId ? (this.products.find(p => p.id === productId)?.ratingCount || 0) : 0
+            ratingCount: productId ? (this.products.find(p => p.id === productId)?.ratingCount || 0) : 0,
+            aliexpressUrl: form.aliexpressUrl.value.trim()
         };
-
-        // Handle images array
-        const existingProduct = productId ? this.products.find(p => p.id === productId) : null;
-        let existingImages = (existingProduct && existingProduct.images) ? existingProduct.images.filter(img => img !== imageUrl) : [];
-        productData.images = [imageUrl, ...existingImages];
 
         try {
             if (productId) {
@@ -1645,15 +1767,21 @@ const app = {
             this.clearAdminForm();
             this.renderAdminProductList();
             this.applyFilters();
-        } catch (error) { console.error("Erro ao guardar produto:", error); this.showToast('Erro ao guardar o produto. Verifique as regras da base de dados.', 'error');
-        } finally { this.hideLoading(); }
+        } catch (error) {
+            console.error("Erro ao guardar produto:", error);
+            this.showToast('Erro ao guardar o produto. Verifique as regras da base de dados.', 'error');
+        } finally {
+            this.hideLoading();
+        }
     },
 
     populateAdminFormForEdit(productId) {
         const product = this.products.find(p => p.id === productId);
         if (!product) return;
+
+        this.clearAdminForm(); // Reset state before populating
+
         const form = document.getElementById('admin-product-form');
-        const imageUrl = (product.images && product.images[0]) || product.image || '';
         form.id.value = productId;
         form.name.value = product.name || '';
         form.description.value = product.description || '';
@@ -1663,25 +1791,36 @@ const app = {
         form.brand.value = product.brand || '';
         form.color.value = product.color || '';
         form.material.value = product.material || '';
-        form.imageUrl.value = imageUrl;
         form.showUrgency.checked = !!product.showUrgency;
         form.tags.value = (product.tags || []).join(', ');
-        const preview = document.getElementById('product-image-preview');
-        if (imageUrl) {
-            preview.src = imageUrl;
-            preview.classList.remove('hidden');
-        } else {
-            preview.classList.add('hidden');
-        }
+        form.aliexpressUrl.value = product.aliexpressUrl || '';
+
+        // Populate and render the image gallery
+        this.adminExistingImages = product.images || (product.image ? [product.image] : []);
+        this.renderAdminImageGallery();
+
         document.getElementById('admin-form-title').textContent = 'Editar Produto';
         form.scrollIntoView({ behavior: 'smooth' });
     },
 
     clearAdminForm() {
         const form = document.getElementById('admin-product-form');
-        form.reset(); form.id.value = ''; form.imageUrl.value = '';
-        document.getElementById('admin-form-title').textContent = 'Adicionar Novo Produto';
-        document.getElementById('product-image-preview').classList.add('hidden');
+        if (form) {
+            form.reset();
+            form.id.value = '';
+        }
+
+        // Reset image management state
+        this.adminImageFiles = [];
+        this.adminExistingImages = [];
+
+        // Update the UI
+        this.renderAdminImageGallery();
+
+        const adminFormTitle = document.getElementById('admin-form-title');
+        if (adminFormTitle) {
+            adminFormTitle.textContent = 'Adicionar Novo Produto';
+        }
     },
 
     handleDeleteProduct(productId) {
@@ -2352,30 +2491,87 @@ const app = {
         const searchOverlay = document.getElementById('search-overlay');
         const searchInput = document.getElementById('search-input');
         const closeSearchBtn = document.getElementById('close-search-btn');
-        const openSearch = () => { searchOverlay.classList.remove('hidden'); searchOverlay.classList.add('flex'); searchInput.focus(); };
+        const suggestionsContainer = document.getElementById('search-suggestions');
+
+        const openSearch = () => {
+            searchOverlay.classList.remove('hidden');
+            searchOverlay.classList.add('flex');
+            searchInput.focus();
+        };
+
         const closeSearch = () => {
             searchOverlay.classList.add('hidden');
             searchOverlay.classList.remove('flex');
+            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.classList.add('hidden');
         };
+
         searchIcon.addEventListener('click', openSearch);
         closeSearchBtn.addEventListener('click', closeSearch);
-        searchOverlay.addEventListener('click', (e) => {
-            if (e.target === searchOverlay && !window.location.hash.includes('/search')) {
+
+        // Close when clicking outside the search input and suggestions
+        document.addEventListener('click', (e) => {
+            if (!searchOverlay.classList.contains('hidden')) {
+                const searchContainer = searchOverlay.querySelector('.relative');
+                if (!searchContainer.contains(e.target) && e.target !== searchIcon) {
+                     closeSearch();
+                }
+            }
+        });
+
+        const renderSuggestions = (products) => {
+            if (products.length === 0) {
+                suggestionsContainer.innerHTML = `<div class="p-4 text-gray-400">Nenhum produto encontrado.</div>`;
+                suggestionsContainer.classList.remove('hidden');
+                return;
+            }
+
+            suggestionsContainer.innerHTML = products.slice(0, 5).map(p => {
+                const imageUrl = (p.images && p.images[0]) || p.image;
+                return `
+                <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
+                    <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4">
+                    <div class="flex-1">
+                        <p class="font-semibold text-white">${p.name}</p>
+                        <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
+                    </div>
+                </a>
+            `}).join('') +
+            `<a href="#/search?q=${encodeURIComponent(searchInput.value)}" class="block text-center p-3 font-semibold text-accent hover:bg-gray-800">Ver todos os resultados</a>`;
+
+            suggestionsContainer.classList.remove('hidden');
+        };
+
+        const handleSearchInput = this.debounce(() => {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            if (searchTerm.length < 2) {
+                suggestionsContainer.innerHTML = '';
+                suggestionsContainer.classList.add('hidden');
+                return;
+            }
+
+            const filteredProducts = this.products.filter(p => p.name.toLowerCase().includes(searchTerm));
+            renderSuggestions(filteredProducts);
+
+            this.trackEvent('search', { search_term: searchTerm });
+        }, 250);
+
+        searchInput.addEventListener('input', handleSearchInput);
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && searchInput.value.trim()) {
+                e.preventDefault();
+                this.navigateTo(`/search?q=${encodeURIComponent(searchInput.value.trim())}`);
                 closeSearch();
             }
         });
 
-        const debouncedSearch = this.debounce(() => {
-            const searchTerm = searchInput.value.trim();
-            if (searchTerm) {
-                this.trackEvent('search', { search_term: searchTerm });
-                this.navigateTo(`/search?q=${encodeURIComponent(searchTerm)}`);
-            } else if (window.location.hash.includes('/search')) {
-                this.navigateTo('/products');
+        // Add event listener to suggestions container to handle clicks on dynamically added items
+        suggestionsContainer.addEventListener('click', (e) => {
+            if (e.target.closest('.search-suggestion-item, .block.text-center')) {
+                closeSearch();
             }
-        }, 300);
-
-        searchInput.addEventListener('input', debouncedSearch);
+        });
     },
 
     initMobileMenu() {

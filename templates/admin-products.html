@@ -3,7 +3,7 @@
         <div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
             <h2 class="text-2xl font-bold mb-6" id="admin-form-title" data-i18n="addProductTitle">Adicionar Novo Produto</h2>
             <form id="admin-product-form" novalidate="">
-                <input id="product-id" name="id" type="hidden" /><input id="product-image-url" name="imageUrl" type="hidden" />
+                <input id="product-id" name="id" type="hidden" />
                 <div class="space-y-4">
                     <div>
                         <label class="block text-gray-300 mb-2" for="product-name" data-i18n="productNameLabel">Nome do Produto</label>
@@ -43,18 +43,41 @@
                         <label class="block text-gray-300 mb-2" for="product-tags">Tags (separadas por vírgula)</label>
                         <input class="w-full p-3 rounded-md form-input" id="product-tags" name="tags" type="text" placeholder="Ex: silencioso, potente, recarregável">
                     </div>
+
+                    <!-- NEW IMAGE UPLOAD SECTION -->
                     <div>
-                        <label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagem do Produto</label>
-                        <img alt="Pré-visualização da imagem" class="w-24 h-24 object-cover rounded-md mb-2 hidden" id="product-image-preview" loading="lazy" data-i18n-alt="imagePreviewAlt" />
-                        <input accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-black hover:file:bg-pink-400" id="product-image-file" name="imageFile" type="file" />
+                        <label class="block text-gray-300 mb-2" data-i18n="productImageLabel">Imagens do Produto</label>
+
+                        <!-- Image Gallery Preview -->
+                        <div id="image-gallery-container" class="mt-4">
+                            <div id="image-gallery-preview" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+                                <!-- As pré-visualizações de imagem serão injetadas aqui pelo JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="drop-zone" class="mt-4 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md cursor-pointer hover:border-accent">
+                            <div class="space-y-1 text-center">
+                                <i class="fas fa-images text-4xl text-gray-400"></i>
+                                <div class="flex text-sm text-gray-400">
+                                    <label for="product-image-file" class="relative cursor-pointer bg-primary rounded-md font-medium text-accent hover:text-pink-400 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
+                                        <span>Carregue os ficheiros</span>
+                                        <input id="product-image-file" name="imageFiles" type="file" class="sr-only" multiple accept="image/*">
+                                    </label>
+                                    <p class="pl-1">ou arraste e solte</p>
+                                </div>
+                                <p class="text-xs text-gray-500">PNG, JPG, GIF até 2MB</p>
+                            </div>
+                        </div>
                     </div>
+
                     <div class="flex items-center">
                         <input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox" />
                         <label class="ml-2 text-gray-300" for="product-show-urgency" data-i18n="showUrgencyLabel">Mostrar mensagem de "Poucas unidades!"</label>
                     </div>
                     <div>
-                        <label class="block text-gray-300 mb-2" for="aliexpress-url-input">URL do AliExpress</label>
-                        <input class="w-full p-3 rounded-md form-input" id="aliexpress-url-input" name="aliexpressUrl" type="url" placeholder="Cole a URL do AliExpress aqui">
+                        <label class="block text-gray-300 mb-2" for="aliexpress-url">URL do AliExpress</label>
+                        <input class="w-full p-3 rounded-md form-input" id="aliexpress-url" name="aliexpressUrl" type="url" placeholder="Cole a URL do AliExpress aqui">
                     </div>
                 </div>
                 <div class="mt-6 flex gap-4">

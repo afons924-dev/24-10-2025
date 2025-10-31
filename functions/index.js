@@ -326,33 +326,62 @@ exports.scrapeAliExpress = functions.region('europe-west3').https.onCall(async (
         const html = response.data;
         const $ = cheerio.load(html);
 
-        // Extract the title
-        const title = $('h1').text().trim();
+        let name, price, description, images = [];
 
-        // Extract the price
-        const priceText = $('.product-price-value').first().text().trim();
-        const price = parseFloat(priceText.replace(/[^0-9,.-]+/g, "").replace(",", "."));
-
-
-        // Extract the description from the meta tag
-        const description = $('meta[property="og:description"]').attr('content') || 'No description found';
-
-        // Extract image URLs from the page
-        const images = [];
-        $('.gallery_Gallery__picList__h87k2 img').each((i, el) => {
-            const imageUrl = $(el).attr('src');
-            if (imageUrl) {
-                images.push(imageUrl.replace('_50x50.jpg', '_800x800.jpg'));
+        // New Strategy: Find the script tag containing the product data JSON
+        let productData = null;
+        $('script').each((i, el) => {
+            const scriptContent = $(el).html();
+            if (scriptContent && scriptContent.includes('window.runParams')) {
+                const jsonStringMatch = scriptContent.match(/window\.runParams = ({.*});/);
+                if (jsonStringMatch && jsonStringMatch[1]) {
+                    try {
+                        productData = JSON.parse(jsonStringMatch[1]);
+                        return false; // Exit the loop once data is found
+                    } catch (e) {
+                        console.warn("Failed to parse AliExpress JSON data from window.runParams.", e.message);
+                    }
+                }
             }
         });
 
+        if (productData && productData.data) {
+            const data = productData.data;
+            name = data.titleModule?.subject || '';
+            description = data.descriptionModule?.descriptionUrl || 'No description found'; // This might be a URL, need to fetch it or find direct description
+            price = parseFloat(data.priceModule?.formatedActivityPrice?.replace(/[^0-9,.-]+/g, "").replace(",", ".") || 0);
+            images = data.imageModule?.imagePathList || [];
+        }
 
-        // Return the scraped data
+        // Fallback Strategy: If JSON parsing fails or data is not found, use cheerio selectors
+        if (!name) {
+            name = $('h1').text().trim();
+        }
+        if (!price) {
+            const priceText = $('.product-price-value').first().text().trim();
+            price = parseFloat(priceText.replace(/[^0-9,.-]+/g, "").replace(",", "."));
+        }
+        if (!description || description.startsWith('http')) {
+             description = $('meta[property="og:description"]').attr('content') || 'No description found';
+        }
+        if (images.length === 0) {
+            $('img[src*="aliexpress.com/kf/"]').each((i, el) => {
+                const imageUrl = $(el).attr('src');
+                if (imageUrl) {
+                    const highResUrl = imageUrl.split('.jpg_')[0] + '.jpg';
+                    if (!images.includes(highResUrl)) {
+                        images.push(highResUrl);
+                    }
+                }
+            });
+        }
+
+        // Return the scraped data, ensuring name consistency
         return {
-            title,
-            price,
-            description,
-            images
+            name: name,
+            price: price || 0,
+            description: description,
+            images: images
         };
     } catch (error) {
         console.error('Error scraping AliExpress:', error);
