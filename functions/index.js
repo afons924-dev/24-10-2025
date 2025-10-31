@@ -36,19 +36,13 @@ const cors = require("cors")({
 
 // It is best practice to store sensitive keys in environment variables.
 let stripe;
-try {
-    // Attempt to initialize Stripe with the secret key from Firebase config.
-    const stripeConfig = functions.config().stripe;
-    if (!stripeConfig || !stripeConfig.secret) {
-        console.error("Stripe secret key is not configured properly in Firebase config (stripe.secret).");
-    }
+const stripeConfig = functions.config().stripe;
+
+if (stripeConfig && stripeConfig.secret) {
     stripe = require("stripe")(stripeConfig.secret);
-} catch (error) {
-    // If config is not available (e.g., during local analysis by Firebase CLI),
-    // initialize with a dummy key to allow deployment to proceed.
-    // This should not happen in a real production environment.
-    console.warn("Stripe config not found, using a dummy key for analysis. Ensure config is set for production.");
-    stripe = require("stripe")("sk_test_123456789012345678901234567890123456789012345678901234567890");
+} else {
+    console.error("CRITICAL: Stripe secret key is not configured in Firebase config (stripe.secret). Payment functions will fail.");
+    // We don't initialize stripe here, so it fails loudly and clearly.
 }
 
 /**
@@ -59,6 +53,13 @@ try {
  */
 exports.createStripePaymentIntent = functions.region('europe-west3').https.onRequest((req, res) => {
     cors(req, res, async () => {
+        // Add a guard clause to ensure Stripe was initialized.
+        if (!stripe) {
+            console.error("Stripe is not initialized. Check your Firebase functions configuration for stripe.secret.");
+            res.status(500).send({ error: "Stripe is not configured on the server. The admin needs to set the secret key." });
+            return;
+        }
+
         const { userId, cart, loyaltyPoints: loyaltyPointsToUse } = req.body;
 
         if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
@@ -111,7 +112,7 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
             const paymentIntent = await stripe.paymentIntents.create({
                 amount: amountInCents,
                 currency: "eur",
-                payment_method_types: ['card'],
+                automatic_payment_methods: { enabled: true }, // Let Stripe manage payment methods
                 metadata: { userId } // Only store userId in metadata
             });
 
