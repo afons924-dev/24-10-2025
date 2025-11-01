@@ -2513,7 +2513,7 @@ const app = {
         document.addEventListener('click', (e) => {
             if (!searchOverlay.classList.contains('hidden')) {
                 const searchContainer = searchOverlay.querySelector('.relative');
-                if (!searchContainer.contains(e.target) && e.target !== searchIcon) {
+                if (!searchContainer.contains(e.target) && !e.target.closest('#search-icon')) {
                      closeSearch();
                 }
             }
@@ -3596,7 +3596,7 @@ const app = {
         // After a payment, Stripe redirects the user back to this page with URL parameters.
         // We need to check for these parameters to handle the post-payment logic.
         if (params.get('payment_intent_client_secret')) {
-            this.handlePostPayment(params);
+            await this.handlePostPayment(params);
             return; // Stop further rendering until the payment status is confirmed.
         }
 
