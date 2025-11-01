@@ -73,7 +73,7 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
             console.log("createStripePaymentIntent: Fetching user document...");
             const userRef = db.collection("users").doc(userId);
             const userDoc = await userRef.get();
-            if (!userDoc.exists()) {
+            if (!userDoc.exists) {
                 console.error(`createStripePaymentIntent: User not found for ID: ${userId}`);
                 return res.status(404).send({ error: "User not found." });
             }
