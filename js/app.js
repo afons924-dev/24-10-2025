@@ -3934,8 +3934,12 @@ const app = {
         const clientSecret = params.get('payment_intent_client_secret');
         const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
 
+        // Adiciona um log para depuração
+        console.log("Stripe PaymentIntent status:", paymentIntent.status);
+
         switch (paymentIntent.status) {
             case "succeeded":
+            case "processing":
                 this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
                 // The webhook will handle order creation. We just need to clear the local state.
                 this.cart = [];
@@ -3945,10 +3949,6 @@ const app = {
                 this.updateCartCountDisplay();
 
                 // Redirect the user to the order confirmation page.
-                this.navigateTo('/account?tab=orders');
-                break;
-            case "processing":
-                this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
                 this.navigateTo('/account?tab=orders');
                 break;
             case "requires_payment_method":
