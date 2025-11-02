@@ -396,6 +396,24 @@ const app = {
                 e.preventDefault();
                 this.openNotifyMeModal(closest('.notify-me-btn').dataset.id);
             }
+            // Delegated search listeners
+            else if (closest('#search-icon')) { this.openSearch(); }
+            else if (closest('#close-search-btn')) { this.closeSearch(); }
+            else if (closest('.search-suggestion-item') || closest('#search-suggestions .block.text-center')) {
+                setTimeout(() => this.closeSearch(), 50); // Timeout to allow navigation
+            }
+        });
+
+        // Use a separate listener for clicks that should close the search, to avoid conflicts.
+        document.addEventListener('click', (e) => {
+            const searchOverlay = document.getElementById('search-overlay');
+            if (searchOverlay && !searchOverlay.classList.contains('hidden')) {
+                const searchContainer = searchOverlay.querySelector('.relative');
+                // Close if the click is outside the search container AND not on the search icon that opens it.
+                if (searchContainer && !searchContainer.contains(e.target) && !e.target.closest('#search-icon')) {
+                     this.closeSearch();
+                }
+            }
         });
 
     document.body.addEventListener('change', (e) => {
@@ -2319,7 +2337,12 @@ const app = {
                 if (cachedData && (Date.now() - cachedData.timestamp < CACHE_DURATION)) {
                     console.log('Loading products from cache.');
                     this.products = cachedData.products;
-                    return; // Exit without showing loading indicator
+                    if (this.products && this.products.length > 0) {
+                        return;
+                    } else {
+                        console.log('Cache was empty. Fetching from Firestore.');
+                        localStorage.removeItem(CACHE_KEY);
+                    }
                 }
             }
         } catch (e) {
@@ -2331,21 +2354,39 @@ const app = {
         console.log('Fetching products from Firestore.');
         this.showLoading();
         try {
-            const productSnapshot = await getDocs(collection(this.db, "products"));
-            if (productSnapshot.empty) {
+            let productSnapshot = await getDocs(collection(this.db, "products"));
+
+            // If the database has fewer than 5 products (the number in our mock data),
+            // assume it's in a bad state (e.g., from a failed test run) and re-seed it.
+            if (productSnapshot.docs.length < 5) {
+                console.log(`Found only ${productSnapshot.docs.length} products. Clearing and re-seeding...`);
+
+                // First, delete any existing documents to ensure a clean slate.
+                const deletePromises = productSnapshot.docs.map(doc => deleteDoc(doc.ref));
+                await Promise.all(deletePromises);
+                console.log("Existing products deleted.");
+
+                // Now, seed the new products.
                 await this.seedProducts();
-                const newSnapshot = await getDocs(collection(this.db, "products"));
-                this.products = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            } else {
-                this.products = productSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Seeding complete. Refetching products...");
+
+                // Refetch after seeding to get the fresh data.
+                productSnapshot = await getDocs(collection(this.db, "products"));
+                console.log(`Refetched. Found ${productSnapshot.docs.length} products.`);
             }
 
-            // Save to cache
-            const cacheData = {
-                products: this.products,
-                timestamp: Date.now()
-            };
-            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+
+            this.products = productSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log(`Final product count in app.products: ${this.products.length}`);
+
+            // Save to cache only if there are products
+            if (this.products.length > 0) {
+                const cacheData = {
+                    products: this.products,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+            }
 
         } catch (error) {
             console.error("Erro ao carregar produtos:", error);
@@ -2375,7 +2416,10 @@ const app = {
             });
             await batch.commit();
             this.showToast('Produtos de exemplo adicionados à loja!');
-        } catch (error) { this.showToast('Falha ao adicionar produtos de exemplo.', 'error');}
+        } catch (error) {
+            console.error("Failed to seed products:", error);
+            this.showToast('Falha ao adicionar produtos de exemplo.', 'error');
+        }
     },
 
     async loadUserProfile() {
@@ -2486,72 +2530,78 @@ const app = {
         });
     },
 
-    initSearch() {
-        const searchIcon = document.getElementById('search-icon');
+    openSearch() {
         const searchOverlay = document.getElementById('search-overlay');
         const searchInput = document.getElementById('search-input');
-        const closeSearchBtn = document.getElementById('close-search-btn');
-        const suggestionsContainer = document.getElementById('search-suggestions');
-
-        const openSearch = () => {
+        if (searchOverlay && searchInput) {
             searchOverlay.classList.remove('hidden');
             searchOverlay.classList.add('flex');
             searchInput.focus();
-        };
+        }
+    },
 
-        const closeSearch = () => {
+    closeSearch() {
+        const searchOverlay = document.getElementById('search-overlay');
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (searchOverlay && suggestionsContainer) {
             searchOverlay.classList.add('hidden');
             searchOverlay.classList.remove('flex');
             suggestionsContainer.innerHTML = '';
             suggestionsContainer.classList.add('hidden');
-        };
+        }
+    },
 
-        searchIcon.addEventListener('click', openSearch);
-        closeSearchBtn.addEventListener('click', closeSearch);
+    renderSearchSuggestions(products, searchTerm) {
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (!suggestionsContainer) return;
 
-        // Close when clicking outside the search input and suggestions
-        document.addEventListener('click', (e) => {
-            if (!searchOverlay.classList.contains('hidden')) {
-                const searchContainer = searchOverlay.querySelector('.relative');
-                if (!searchContainer.contains(e.target) && !e.target.closest('#search-icon')) {
-                     closeSearch();
-                }
-            }
-        });
-
-        const renderSuggestions = (products) => {
-            if (products.length === 0) {
-                suggestionsContainer.innerHTML = `<div class="p-4 text-gray-400">Nenhum produto encontrado.</div>`;
-                suggestionsContainer.classList.remove('hidden');
-                return;
-            }
-
-            suggestionsContainer.innerHTML = products.slice(0, 5).map(p => {
-                const imageUrl = (p.images && p.images[0]) || p.image;
-                return `
-                <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
-                    <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4">
-                    <div class="flex-1">
-                        <p class="font-semibold text-white">${p.name}</p>
-                        <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
-                    </div>
-                </a>
-            `}).join('') +
-            `<a href="#/search?q=${encodeURIComponent(searchInput.value)}" class="block text-center p-3 font-semibold text-accent hover:bg-gray-800">Ver todos os resultados</a>`;
-
+        if (products.length === 0) {
+            suggestionsContainer.innerHTML = `<div class="p-4 text-gray-400">Nenhum produto encontrado.</div>`;
             suggestionsContainer.classList.remove('hidden');
-        };
+            return;
+        }
+
+        suggestionsContainer.innerHTML = products.slice(0, 5).map(p => {
+            const imageUrl = (p.images && p.images[0]) || p.image;
+            return `
+            <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
+                <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4">
+                <div class="flex-1">
+                    <p class="font-semibold text-white">${p.name}</p>
+                    <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
+                </div>
+            </a>
+            `
+        }).join('') +
+        `<a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center p-3 font-semibold text-accent hover:bg-gray-800">Ver todos os resultados</a>`;
+
+        suggestionsContainer.classList.remove('hidden');
+    },
+
+    initSearch() {
+        const searchInput = document.getElementById('search-input');
+        if (!searchInput) return;
 
         const handleSearchInput = this.debounce(() => {
             const searchTerm = searchInput.value.trim().toLowerCase();
+            console.log(`Searching for: "${searchTerm}"`); // Log the search term
+            console.log(`Number of products in app.products: ${this.products.length}`); // Log the number of products
+
             if (searchTerm.length < 2) {
-                suggestionsContainer.innerHTML = '';
-                suggestionsContainer.classList.add('hidden');
+                const suggestionsContainer = document.getElementById('search-suggestions');
+                if (suggestionsContainer) {
+                    suggestionsContainer.innerHTML = '';
+                    suggestionsContainer.classList.add('hidden');
+                }
                 return;
             }
 
-            const filteredProducts = this.products.filter(p => p.name.toLowerCase().includes(searchTerm));
-            renderSuggestions(filteredProducts);
+            const filteredProducts = this.products.filter(p =>
+                p.name.toLowerCase().includes(searchTerm) ||
+                p.description.toLowerCase().includes(searchTerm)
+            );
+            console.log(`Found ${filteredProducts.length} matching products.`); // Log the number of filtered products
+            this.renderSearchSuggestions(filteredProducts, searchTerm);
 
             this.trackEvent('search', { search_term: searchTerm });
         }, 250);
@@ -2562,14 +2612,7 @@ const app = {
             if (e.key === 'Enter' && searchInput.value.trim()) {
                 e.preventDefault();
                 this.navigateTo(`/search?q=${encodeURIComponent(searchInput.value.trim())}`);
-                closeSearch();
-            }
-        });
-
-        // Add event listener to suggestions container to handle clicks on dynamically added items
-        suggestionsContainer.addEventListener('click', (e) => {
-            if (e.target.closest('.search-suggestion-item, .block.text-center')) {
-                closeSearch();
+                this.closeSearch();
             }
         });
     },
@@ -3414,6 +3457,12 @@ const app = {
         const navContainer = document.getElementById('account-nav');
         const contentArea = document.getElementById('account-content-area');
         if (!navContainer || !contentArea || !this.userProfile) return;
+
+        if (sessionStorage.getItem('paymentSuccess')) {
+            this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
+            sessionStorage.removeItem('paymentSuccess');
+        }
+
         document.getElementById('account-username').textContent = this.userProfile.firstName || this.user.email;
         const navItems = [ { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Painel' }, { id: 'orders', icon: 'fa-box', label: 'Encomendas' }, { id: 'wishlist', icon: 'fa-heart', label: 'Wishlist' }, { id: 'details', icon: 'fa-user-edit', label: 'Detalhes' }, { id: 'address', icon: 'fa-map-marker-alt', label: 'Endereço' } ];
         navContainer.innerHTML = `${navItems.map(item => `<a href="#/account?tab=${item.id}" data-tab="${item.id}" class="account-nav-link flex-1 text-center font-semibold p-3 rounded-md flex items-center justify-center gap-3 transition-colors"><i class="fas ${item.icon} w-5"></i><span class="hidden sm:inline">${item.label}</span></a>`).join('')}
@@ -3932,35 +3981,61 @@ const app = {
         this.showLoading();
 
         const clientSecret = params.get('payment_intent_client_secret');
-        const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
 
-        // Adiciona um log para depuração
-        console.log("Stripe PaymentIntent status:", paymentIntent.status);
+        try {
+            const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
+            console.log("Stripe PaymentIntent status:", paymentIntent.status);
 
-        switch (paymentIntent.status) {
-            case "succeeded":
-            case "processing":
-                this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
-                // The webhook will handle order creation. We just need to clear the local state.
-                this.cart = [];
-                this.loyalty = { pointsUsed: 0, discountAmount: 0 };
-                this.discount = { code: '', percentage: 0, amount: 0 };
-                await this.saveCart(); // This will save an empty cart to Firestore.
-                this.updateCartCountDisplay();
+            switch (paymentIntent.status) {
+                case "succeeded":
+                case "processing":
+                    sessionStorage.setItem('paymentSuccess', 'true');
 
-                // Redirect the user to the order confirmation page.
-                this.navigateTo('/account?tab=orders');
-                break;
-            case "requires_payment_method":
-                this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
-            default:
-                this.showToast("Algo correu mal com o pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
+                    // Clear local state immediately for a responsive UI
+                    this.cart = [];
+                    this.loyalty = { pointsUsed: 0, discountAmount: 0 };
+                    this.discount = { code: '', percentage: 0, amount: 0 };
+                    this.updateCartCountDisplay();
+
+                    // Save the cleared cart to Firestore.
+                    await this.saveCart();
+
+                    // Wait for authentication state to be confirmed before navigating.
+                    // This prevents a race condition where the app thinks the user is logged out.
+                    const waitForAuth = new Promise(resolve => {
+                        if (this.authReady && this.user) {
+                            resolve();
+                        } else {
+                            const unsubscribe = onAuthStateChanged(this.auth, (user) => {
+                                if (user) {
+                                    unsubscribe();
+                                    resolve();
+                                }
+                            });
+                        }
+                    });
+
+                    await waitForAuth;
+                    this.navigateTo('/account?tab=orders');
+                    break;
+
+                case "requires_payment_method":
+                    this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
+                    this.navigateTo('/checkout');
+                    break;
+
+                default:
+                    this.showToast("Algo correu mal com o pagamento.", "error");
+                    this.navigateTo('/checkout');
+                    break;
+            }
+        } catch (error) {
+            console.error("Error handling post-payment:", error);
+            this.showToast("Ocorreu um erro ao verificar o seu pagamento. Por favor, verifique a sua conta ou contacte o suporte.", "error");
+            this.navigateTo('/');
+        } finally {
+            this.hideLoading();
         }
-        this.hideLoading();
     },
 
     initExitIntentPopup() {
