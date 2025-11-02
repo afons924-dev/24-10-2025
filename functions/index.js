@@ -61,7 +61,7 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
             return res.status(500).send({ error: "Stripe is not configured on the server. The admin needs to set the secret key." });
         }
 
-        const { userId, cart, loyaltyPoints: loyaltyPointsToUse } = req.body;
+        const { userId, cart, loyaltyPoints } = req.body;
         console.log(`createStripePaymentIntent: Received request for userId: ${userId}`);
 
         if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
@@ -98,7 +98,7 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
 
             // Apply loyalty points discount on the server
             const availablePoints = userProfile.loyaltyPoints || 0;
-            const pointsToRedeem = loyaltyPointsToUse || 0;
+            const pointsToRedeem = loyaltyPoints || 0;
 
             if (pointsToRedeem > 0) {
                 console.log(`createStripePaymentIntent: Applying ${pointsToRedeem} loyalty points (Available: ${availablePoints}).`);
@@ -127,7 +127,10 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
                 amount: amountInCents,
                 currency: "eur",
                 automatic_payment_methods: { enabled: true }, // Let Stripe manage payment methods
-                metadata: { userId } // Only store userId in metadata
+                metadata: {
+                    userId,
+                    loyaltyPointsUsed: pointsToRedeem,
+                },
             });
             console.log(`createStripePaymentIntent: Payment Intent created successfully with ID: ${paymentIntent.id}`);
 
@@ -137,7 +140,7 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
                 userId,
                 cart,
                 loyaltyPointsUsed: pointsToRedeem,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             console.log("createStripePaymentIntent: Temporary session document created in Firestore.");
 
@@ -236,7 +239,7 @@ const fulfillOrder = async (paymentIntent) => {
             productUpdates.forEach(update => transaction.update(update.ref, update.data));
 
             // Calculate final loyalty points: subtract used points and add newly awarded points.
-            const pointsUsed = sessionDoc.data().loyaltyPointsUsed || 0;
+            const pointsUsed = parseInt(paymentIntent.metadata.loyaltyPointsUsed) || 0;
             const currentPoints = userProfile.loyaltyPoints || 0;
             const newPoints = currentPoints - pointsUsed + pointsToAward;
 

@@ -306,7 +306,6 @@ const app = {
     initializeAnalytics() {
         if (typeof gtag === 'function' && GOOGLE_ANALYTICS_ID) {
             gtag('config', GOOGLE_ANALYTICS_ID);
-            console.log('Google Analytics initialized.');
         }
     },
 
@@ -831,10 +830,8 @@ const app = {
         if (!saleSection) return;
 
         try {
-            console.log("Initializing Flash Sale...");
             const saleDoc = await getDoc(doc(this.db, "flash_sale", "current"));
             if (!saleDoc.exists()) {
-                console.log("Flash Sale: No 'current' document found.");
                 saleSection.classList.add('hidden');
                 return;
             }
@@ -844,19 +841,16 @@ const app = {
             const now = new Date();
 
             if (endDate <= now) {
-                console.log("Flash Sale: Sale has expired.", { endDate, now });
                 saleSection.classList.add('hidden');
                 return;
             }
 
             const product = this.products.find(p => p.id === saleData.productId);
             if (!product) {
-                console.log("Flash Sale: Product with ID not found:", saleData.productId);
                 saleSection.classList.add('hidden');
                 return;
             }
 
-            console.log("Flash Sale: Rendering active sale for product:", product.name);
             const discountedPrice = product.price * (1 - saleData.discountPercentage / 100);
 
             const saleContainer = document.getElementById('flash-sale-container');
@@ -2335,14 +2329,8 @@ const app = {
             if (cachedDataJSON) {
                 const cachedData = JSON.parse(cachedDataJSON);
                 if (cachedData && (Date.now() - cachedData.timestamp < CACHE_DURATION)) {
-                    console.log('Loading products from cache.');
                     this.products = cachedData.products;
-                    if (this.products && this.products.length > 0) {
-                        return;
-                    } else {
-                        console.log('Cache was empty. Fetching from Firestore.');
-                        localStorage.removeItem(CACHE_KEY);
-                    }
+                    return; // Exit without showing loading indicator
                 }
             }
         } catch (e) {
@@ -2351,42 +2339,23 @@ const app = {
         }
 
 
-        console.log('Fetching products from Firestore.');
         this.showLoading();
         try {
-            let productSnapshot = await getDocs(collection(this.db, "products"));
-
-            // If the database has fewer than 5 products (the number in our mock data),
-            // assume it's in a bad state (e.g., from a failed test run) and re-seed it.
-            if (productSnapshot.docs.length < 5) {
-                console.log(`Found only ${productSnapshot.docs.length} products. Clearing and re-seeding...`);
-
-                // First, delete any existing documents to ensure a clean slate.
-                const deletePromises = productSnapshot.docs.map(doc => deleteDoc(doc.ref));
-                await Promise.all(deletePromises);
-                console.log("Existing products deleted.");
-
-                // Now, seed the new products.
+            const productSnapshot = await getDocs(collection(this.db, "products"));
+            if (productSnapshot.empty) {
                 await this.seedProducts();
-                console.log("Seeding complete. Refetching products...");
-
-                // Refetch after seeding to get the fresh data.
-                productSnapshot = await getDocs(collection(this.db, "products"));
-                console.log(`Refetched. Found ${productSnapshot.docs.length} products.`);
+                const newSnapshot = await getDocs(collection(this.db, "products"));
+                this.products = newSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } else {
+                this.products = productSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             }
 
-
-            this.products = productSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log(`Final product count in app.products: ${this.products.length}`);
-
-            // Save to cache only if there are products
-            if (this.products.length > 0) {
-                const cacheData = {
-                    products: this.products,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-            }
+            // Save to cache
+            const cacheData = {
+                products: this.products,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
 
         } catch (error) {
             console.error("Erro ao carregar produtos:", error);
@@ -2416,10 +2385,7 @@ const app = {
             });
             await batch.commit();
             this.showToast('Produtos de exemplo adicionados à loja!');
-        } catch (error) {
-            console.error("Failed to seed products:", error);
-            this.showToast('Falha ao adicionar produtos de exemplo.', 'error');
-        }
+        } catch (error) { this.showToast('Falha ao adicionar produtos de exemplo.', 'error');}
     },
 
     async loadUserProfile() {
@@ -2463,14 +2429,12 @@ const app = {
         if (!this.user) { this.showToast('Faça login para adicionar à wishlist.', 'error'); this.openAuthModal('login'); return; }
         if (this.isProductInWishlist(productId)) return;
 
-        console.log('Adding to wishlist. Current wishlist:', JSON.stringify(this.userProfile.wishlist));
         this.userProfile.wishlist.push(productId);
         this.updateWishlistIcons(productId, true); // Optimistic UI update
 
         try {
             await updateDoc(doc(this.db, "users", this.user.uid), { wishlist: this.userProfile.wishlist });
             this.showToast('Adicionado à Lista de Desejos!');
-            console.log('Successfully added to Firestore. New wishlist:', JSON.stringify(this.userProfile.wishlist));
         } catch (error) {
             console.error('Error adding to wishlist:', error);
             this.showToast('Erro ao adicionar à wishlist.', 'error');
@@ -2482,14 +2446,12 @@ const app = {
     async removeFromWishlist(productId) {
         if (!this.user) return;
         const initialWishlist = [...this.userProfile.wishlist];
-        console.log('Removing from wishlist. Current wishlist:', JSON.stringify(initialWishlist));
         this.userProfile.wishlist = this.userProfile.wishlist.filter(id => id !== productId);
         this.updateWishlistIcons(productId, false); // Optimistic UI update
 
         try {
             await updateDoc(doc(this.db, "users", this.user.uid), { wishlist: this.userProfile.wishlist });
             this.showToast('Removido da Lista de Desejos!');
-            console.log('Successfully removed from Firestore. New wishlist:', JSON.stringify(this.userProfile.wishlist));
         } catch (error) {
             console.error('Error removing from wishlist:', error);
             this.showToast('Erro ao remover da wishlist.', 'error');
@@ -2503,7 +2465,6 @@ const app = {
     },
 
     toggleWishlist(productId) {
-        console.log(`Toggling wishlist for product: ${productId}`);
         if (!this.user) {
             this.showToast('Faça login para usar a wishlist.', 'error');
             this.openAuthModal('login');
@@ -2532,50 +2493,17 @@ const app = {
 
     openSearch() {
         const searchOverlay = document.getElementById('search-overlay');
-        const searchInput = document.getElementById('search-input');
-        if (searchOverlay && searchInput) {
+        if (searchOverlay) {
             searchOverlay.classList.remove('hidden');
-            searchOverlay.classList.add('flex');
-            searchInput.focus();
+            document.getElementById('search-input')?.focus();
         }
     },
 
     closeSearch() {
         const searchOverlay = document.getElementById('search-overlay');
-        const suggestionsContainer = document.getElementById('search-suggestions');
-        if (searchOverlay && suggestionsContainer) {
+        if (searchOverlay) {
             searchOverlay.classList.add('hidden');
-            searchOverlay.classList.remove('flex');
-            suggestionsContainer.innerHTML = '';
-            suggestionsContainer.classList.add('hidden');
         }
-    },
-
-    renderSearchSuggestions(products, searchTerm) {
-        const suggestionsContainer = document.getElementById('search-suggestions');
-        if (!suggestionsContainer) return;
-
-        if (products.length === 0) {
-            suggestionsContainer.innerHTML = `<div class="p-4 text-gray-400">Nenhum produto encontrado.</div>`;
-            suggestionsContainer.classList.remove('hidden');
-            return;
-        }
-
-        suggestionsContainer.innerHTML = products.slice(0, 5).map(p => {
-            const imageUrl = (p.images && p.images[0]) || p.image;
-            return `
-            <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
-                <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4">
-                <div class="flex-1">
-                    <p class="font-semibold text-white">${p.name}</p>
-                    <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
-                </div>
-            </a>
-            `
-        }).join('') +
-        `<a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center p-3 font-semibold text-accent hover:bg-gray-800">Ver todos os resultados</a>`;
-
-        suggestionsContainer.classList.remove('hidden');
     },
 
     initSearch() {
@@ -2584,8 +2512,6 @@ const app = {
 
         const handleSearchInput = this.debounce(() => {
             const searchTerm = searchInput.value.trim().toLowerCase();
-            console.log(`Searching for: "${searchTerm}"`); // Log the search term
-            console.log(`Number of products in app.products: ${this.products.length}`); // Log the number of products
 
             if (searchTerm.length < 2) {
                 const suggestionsContainer = document.getElementById('search-suggestions');
@@ -2600,7 +2526,6 @@ const app = {
                 p.name.toLowerCase().includes(searchTerm) ||
                 p.description.toLowerCase().includes(searchTerm)
             );
-            console.log(`Found ${filteredProducts.length} matching products.`); // Log the number of filtered products
             this.renderSearchSuggestions(filteredProducts, searchTerm);
 
             this.trackEvent('search', { search_term: searchTerm });
@@ -3324,8 +3249,6 @@ const app = {
     },
 
     applyFilters(isInitialLoad = false) {
-        console.log("Applying filters with state:", JSON.parse(JSON.stringify(this.filters))); // Debugging line
-
         const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
         let filtered = [...this.products];
 
@@ -3454,15 +3377,14 @@ const app = {
     initProductSorting() { document.getElementById('sort')?.addEventListener('change', () => this.applyFilters()); },
 
     async initAccountPage(initialTab = 'dashboard') {
-        const navContainer = document.getElementById('account-nav');
-        const contentArea = document.getElementById('account-content-area');
-        if (!navContainer || !contentArea || !this.userProfile) return;
-
         if (sessionStorage.getItem('paymentSuccess')) {
             this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
             sessionStorage.removeItem('paymentSuccess');
         }
 
+        const navContainer = document.getElementById('account-nav');
+        const contentArea = document.getElementById('account-content-area');
+        if (!navContainer || !contentArea || !this.userProfile) return;
         document.getElementById('account-username').textContent = this.userProfile.firstName || this.user.email;
         const navItems = [ { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Painel' }, { id: 'orders', icon: 'fa-box', label: 'Encomendas' }, { id: 'wishlist', icon: 'fa-heart', label: 'Wishlist' }, { id: 'details', icon: 'fa-user-edit', label: 'Detalhes' }, { id: 'address', icon: 'fa-map-marker-alt', label: 'Endereço' } ];
         navContainer.innerHTML = `${navItems.map(item => `<a href="#/account?tab=${item.id}" data-tab="${item.id}" class="account-nav-link flex-1 text-center font-semibold p-3 rounded-md flex items-center justify-center gap-3 transition-colors"><i class="fas ${item.icon} w-5"></i><span class="hidden sm:inline">${item.label}</span></a>`).join('')}
@@ -3511,7 +3433,6 @@ const app = {
         if (!container) return;
 
         const wishlistIds = this.userProfile?.wishlist || [];
-        console.log('Rendering wishlist page. Wishlist IDs:', JSON.stringify(wishlistIds));
 
         if (wishlistIds.length === 0) {
             container.innerHTML = '<p class="text-gray-400 col-span-full">A sua lista de desejos está vazia.</p>';
@@ -3519,7 +3440,6 @@ const app = {
         }
 
         const wishlistProducts = this.products.filter(p => wishlistIds.includes(p.id));
-        console.log('Found products for wishlist:', JSON.stringify(wishlistProducts.map(p => p.name)));
 
         container.innerHTML = wishlistProducts.length > 0
             ? wishlistProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')
@@ -3636,7 +3556,7 @@ const app = {
     },
 
     async renderCheckoutPage(params) {
-        if (this.cart.length === 0) {
+        if (this.cart.length === 0 && !params.get('payment_intent_client_secret')) {
             const container = document.querySelector('#app-root .container');
             if (container) container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Começar a Comprar</a></div>`;
             return;
@@ -3645,7 +3565,7 @@ const app = {
         // After a payment, Stripe redirects the user back to this page with URL parameters.
         // We need to check for these parameters to handle the post-payment logic.
         if (params.get('payment_intent_client_secret')) {
-            await this.handlePostPayment(params);
+            this.handlePostPayment(params);
             return; // Stop further rendering until the payment status is confirmed.
         }
 
@@ -3658,8 +3578,19 @@ const app = {
         this.updateCheckoutView();
 
         const loyaltyPointsEl = document.getElementById('loyalty-points-available');
-        if (loyaltyPointsEl && this.userProfile) {
-            loyaltyPointsEl.textContent = Math.floor(this.userProfile.loyaltyPoints) || 0;
+        const loyaltySection = document.getElementById('loyalty-section');
+
+        if (this.userProfile && this.userProfile.loyaltyPoints > 0) {
+            if (loyaltyPointsEl) {
+                loyaltyPointsEl.textContent = Math.floor(this.userProfile.loyaltyPoints);
+            }
+            if (loyaltySection) {
+                loyaltySection.classList.remove('hidden');
+            }
+        } else {
+            if (loyaltySection) {
+                loyaltySection.classList.add('hidden');
+            }
         }
     },
 
@@ -3898,7 +3829,8 @@ const app = {
                     amount: amountInCents,
                     currency: 'eur',
                     userId: this.user.uid,
-                    cart: this.cart.map(item => ({ id: item.id, quantity: item.quantity }))
+                    cart: this.cart.map(item => ({ id: item.id, quantity: item.quantity })),
+                    loyaltyPoints: this.loyalty.pointsUsed
                 }),
             });
 
@@ -3982,60 +3914,38 @@ const app = {
 
         const clientSecret = params.get('payment_intent_client_secret');
 
-        try {
-            const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
-            console.log("Stripe PaymentIntent status:", paymentIntent.status);
 
-            switch (paymentIntent.status) {
-                case "succeeded":
-                case "processing":
-                    sessionStorage.setItem('paymentSuccess', 'true');
+        const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
 
-                    // Clear local state immediately for a responsive UI
-                    this.cart = [];
-                    this.loyalty = { pointsUsed: 0, discountAmount: 0 };
-                    this.discount = { code: '', percentage: 0, amount: 0 };
-                    this.updateCartCountDisplay();
+        switch (paymentIntent.status) {
+            case "succeeded":
+                // The webhook will handle order creation. We just need to clear the local state.
+                this.cart = [];
+                this.loyalty = { pointsUsed: 0, discountAmount: 0 };
+                this.discount = { code: '', percentage: 0, amount: 0 };
+                await this.saveCart(); // This will save an empty cart to Firestore.
+                this.updateCartCountDisplay();
 
-                    // Save the cleared cart to Firestore.
-                    await this.saveCart();
+                // Set a flag to show a success message on the next page.
+                sessionStorage.setItem('paymentSuccess', 'true');
 
-                    // Wait for authentication state to be confirmed before navigating.
-                    // This prevents a race condition where the app thinks the user is logged out.
-                    const waitForAuth = new Promise(resolve => {
-                        if (this.authReady && this.user) {
-                            resolve();
-                        } else {
-                            const unsubscribe = onAuthStateChanged(this.auth, (user) => {
-                                if (user) {
-                                    unsubscribe();
-                                    resolve();
-                                }
-                            });
-                        }
-                    });
-
-                    await waitForAuth;
-                    this.navigateTo('/account?tab=orders');
-                    break;
-
-                case "requires_payment_method":
-                    this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
-                    this.navigateTo('/checkout');
-                    break;
-
-                default:
-                    this.showToast("Algo correu mal com o pagamento.", "error");
-                    this.navigateTo('/checkout');
-                    break;
-            }
-        } catch (error) {
-            console.error("Error handling post-payment:", error);
-            this.showToast("Ocorreu um erro ao verificar o seu pagamento. Por favor, verifique a sua conta ou contacte o suporte.", "error");
-            this.navigateTo('/');
-        } finally {
-            this.hideLoading();
+                // Redirect the user to the order confirmation page.
+                this.navigateTo('/account?tab=orders');
+                break;
+            case "processing":
+                this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
+                this.navigateTo('/account?tab=orders');
+                break;
+            case "requires_payment_method":
+                this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
+                this.navigateTo('/checkout');
+                break;
+            default:
+                this.showToast("Algo correu mal com o pagamento.", "error");
+                this.navigateTo('/checkout');
+                break;
         }
+        this.hideLoading();
     },
 
     initExitIntentPopup() {
