@@ -413,6 +413,19 @@ const app = {
             const target = e.target;
             const closest = (selector) => target.closest(selector);
 
+            // Specific handler for search suggestions MUST come before generic links
+            const searchSuggestionLink = closest('.search-suggestion-item, #search-suggestions .block.text-center');
+            if (searchSuggestionLink) {
+                const link = closest('a');
+                if (link && link.href) {
+                    e.preventDefault();
+                    const destination = new URL(link.href).hash.substring(1);
+                    this.closeSearch(); // Close and clear first
+                    this.navigateTo(destination);
+                    return; // Stop further processing
+                }
+            }
+
             if (closest('.add-to-cart-btn')) {
                 e.preventDefault();
                 const button = closest('.add-to-cart-btn');
@@ -447,9 +460,6 @@ const app = {
             // Delegated search listeners
             else if (closest('#search-icon')) { this.openSearch(); }
             else if (closest('#close-search-btn')) { this.closeSearch(); }
-            else if (closest('.search-suggestion-item') || closest('#search-suggestions .block.text-center')) {
-                setTimeout(() => this.closeSearch(), 50); // Timeout to allow navigation
-            }
         });
 
         // Use a separate listener for clicks that should close the search, to avoid conflicts.
@@ -3994,8 +4004,9 @@ const app = {
                 // Set a flag to show a success message on the next page.
                 sessionStorage.setItem('paymentSuccess', 'true');
 
-                // Redirect the user to the order confirmation page, forcing a reload.
-                window.location.assign('/#/account?tab=orders');
+                // Force a hard reload to ensure all data is refreshed.
+                window.location.href = '/#/account?tab=orders';
+                window.location.reload();
                 break;
             case "processing":
                 this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
