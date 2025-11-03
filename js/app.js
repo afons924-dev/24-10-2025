@@ -2550,8 +2550,18 @@ const app = {
 
     closeSearch() {
         const searchOverlay = document.getElementById('search-overlay');
+        const searchInput = document.getElementById('search-input');
+        const suggestionsContainer = document.getElementById('search-suggestions');
+
         if (searchOverlay) {
             searchOverlay.classList.add('hidden');
+        }
+        if (searchInput) {
+            searchInput.value = ''; // Limpa o texto
+        }
+        if (suggestionsContainer) {
+            suggestionsContainer.innerHTML = ''; // Limpa as sugestões
+            suggestionsContainer.classList.add('hidden');
         }
     },
 
@@ -3984,8 +3994,8 @@ const app = {
                 // Set a flag to show a success message on the next page.
                 sessionStorage.setItem('paymentSuccess', 'true');
 
-                // Redirect the user to the order confirmation page.
-                this.navigateTo('/account?tab=orders');
+                // Redirect the user to the order confirmation page, forcing a reload.
+                window.location.assign('/#/account?tab=orders');
                 break;
             case "processing":
                 this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
