@@ -217,6 +217,47 @@ const app = {
         });
     },
 
+        renderSearchSuggestions(products, searchTerm) {
+            const container = document.getElementById('search-suggestions');
+            if (!container) return;
+
+            if (products.length > 0) {
+                container.innerHTML = `
+                    <h3 class="px-4 py-2 text-sm font-semibold text-gray-400">Produtos</h3>
+                    ${products.slice(0, 5).map(p => {
+                        const imageUrl = (p.images && p.images[0]) || p.image || 'https://placehold.co/100x100/1a1a1a/e11d48?text=Img';
+                        return `
+                        <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center gap-4 px-4 py-2 hover:bg-secondary transition-colors">
+                            <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md">
+                            <div class="flex-1 min-w-0">
+                                <p class="font-semibold text-white truncate">${p.name}</p>
+                                <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
+                            </div>
+                        </a>
+                        `;
+                    }).join('')}
+                    ${products.length > 5 ? `
+                    <a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center py-3 bg-secondary hover:bg-gray-700 font-semibold text-accent">
+                        Ver todos os ${products.length} resultados
+                    </a>` : ''}
+                `;
+            } else {
+                const categories = [...new Set(this.products.map(p => p.category).filter(Boolean))].slice(0, 4);
+                container.innerHTML = `
+                    <div class="p-4 text-center">
+                        <p class="text-gray-400 mb-4">Nenhum produto encontrado para "${searchTerm}".</p>
+                        <h4 class="font-semibold text-white mb-2">Sugestões de Categorias:</h4>
+                        <div class="flex flex-wrap justify-center gap-2">
+                            ${categories.map(cat => `
+                                <a href="#/products?category=${cat}" class="search-suggestion-item bg-secondary hover:bg-gray-700 text-sm py-1 px-3 rounded-full">${cat.charAt(0).toUpperCase() + cat.slice(1)}</a>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            container.classList.remove('hidden');
+        },
+
     async initLanguageSwitcher() {
         const switcherBtn = document.getElementById('lang-switcher-btn');
         const dropdown = document.getElementById('lang-dropdown');
@@ -3113,15 +3154,22 @@ const app = {
     applyLoyaltyPoints() {
         const input = document.getElementById('loyalty-points-input');
         const messageEl = document.getElementById('loyalty-message');
-        const pointsToRedeem = parseInt(input.value);
+        let pointsToRedeem = parseInt(input.value);
 
         messageEl.textContent = '';
         messageEl.classList.remove('text-green-400', 'text-red-400');
+
+        if (!isNaN(pointsToRedeem) && pointsToRedeem < 0) {
+            pointsToRedeem = Math.floor(this.userProfile.loyaltyPoints);
+            input.value = pointsToRedeem;
+        }
 
         if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) {
             this.showToast('Por favor, insira um número válido de pontos.', 'error');
             messageEl.textContent = 'Número inválido.';
             messageEl.classList.add('text-red-400');
+            this.loyalty = { pointsUsed: 0, discountAmount: 0 };
+            this.updateCheckoutSummary();
             return;
         }
 
@@ -3888,7 +3936,7 @@ const app = {
             elements: this.stripeElements,
             confirmParams: {
                 // The return_url is where the user will be redirected after payment.
-                return_url: `${window.location.origin}${window.location.pathname}#/checkout`,
+                return_url: `${window.location.origin}${window.location.pathname}#/account?tab=orders`,
             },
         });
 
