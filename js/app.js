@@ -3378,7 +3378,7 @@ const app = {
 
     async initAccountPage(initialTab = 'dashboard') {
         if (sessionStorage.getItem('paymentSuccess')) {
-            this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
+            this.showPurchaseSuccessModal();
             sessionStorage.removeItem('paymentSuccess');
         }
 
@@ -3919,6 +3919,15 @@ const app = {
 
         switch (paymentIntent.status) {
             case "succeeded":
+                // Optimistically update the user's loyalty points on the client-side.
+                // The backend webhook is the source of truth, but this provides immediate feedback.
+                if (this.userProfile && this.loyalty.pointsUsed > 0) {
+                    const pointsUsed = this.loyalty.pointsUsed;
+                    // We don't add points here, as the final value depends on the total amount paid,
+                    // which is calculated on the backend. We just subtract what was used.
+                    this.userProfile.loyaltyPoints = Math.max(0, this.userProfile.loyaltyPoints - pointsUsed);
+                }
+
                 // The webhook will handle order creation. We just need to clear the local state.
                 this.cart = [];
                 this.loyalty = { pointsUsed: 0, discountAmount: 0 };
@@ -4009,6 +4018,52 @@ const app = {
         }
 
         this.updateMetaTags(title, description, imageUrl);
+    },
+
+    showPurchaseSuccessModal() {
+        const modal = document.getElementById('purchase-success-modal');
+        if (!modal) {
+            console.error('Purchase success modal not found in the DOM.');
+            this.showToast('Compra efetuada com sucesso!', 'success');
+            return;
+        }
+
+        const closeBtn = modal.querySelector('#purchase-success-close-btn');
+        const continueShoppingBtn = modal.querySelector('#purchase-success-continue-btn');
+
+        if (!closeBtn || !continueShoppingBtn) {
+            console.error('Could not find required buttons inside the purchase success modal.');
+            return;
+        }
+
+        const closeModal = () => {
+            modal.classList.replace('flex', 'hidden');
+        };
+
+        const handleContinueShopping = () => {
+            closeModal();
+            this.navigateTo('/products');
+        };
+
+        const handleOutsideClick = (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        };
+
+        // Use { once: true } to auto-cleanup listeners
+        closeBtn.addEventListener('click', closeModal, { once: true });
+        continueShoppingBtn.addEventListener('click', handleContinueShopping, { once: true });
+        modal.addEventListener('click', handleOutsideClick, { once: true });
+
+        modal.classList.replace('hidden', 'flex');
+        // Animate the modal content
+        const content = modal.querySelector('.transform');
+        if (content) {
+            setTimeout(() => {
+                content.classList.remove('scale-95', 'opacity-0');
+            }, 50);
+        }
     }
 };
 
