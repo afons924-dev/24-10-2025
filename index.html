@@ -296,16 +296,16 @@ s0.parentNode.insertBefore(s1,s0);
 <script type="module" src="js/app.js"></script>
 <!-- Purchase Success Modal -->
 <div aria-labelledby="purchase-success-heading" aria-modal="true" class="fixed inset-0 bg-black bg-opacity-80 z-[250] hidden items-center justify-center p-4 text-center" id="purchase-success-modal" role="dialog">
-    <div class="bg-primary rounded-lg shadow-xl p-8 max-w-md relative transform transition-all scale-95 opacity-0">
-        <button aria-label="Fechar" class="absolute top-2 right-3 text-gray-400 hover:text-white close-success-modal"><i class="fas fa-times text-2xl"></i></button>
+    <div class="bg-primary rounded-lg shadow-xl p-8 max-w-md relative transform transition-all">
+        <button aria-label="Fechar" class="absolute top-2 right-3 text-gray-400 hover:text-white" id="purchase-success-close-btn"><i class="fas fa-times text-2xl"></i></button>
         <div class="text-green-400 mb-4">
             <i class="fas fa-check-circle fa-4x"></i>
         </div>
         <h2 class="text-3xl font-bold text-white mb-4" id="purchase-success-heading" data-i18n="purchaseSuccessTitle">Encomenda Efetuada!</h2>
         <p class="text-gray-300 mb-8" data-i18n="purchaseSuccessMessage">A sua encomenda foi processada com sucesso. Pode ver os detalhes na sua área de cliente.</p>
         <div class="flex flex-col sm:flex-row justify-center gap-4">
-            <a href="#/products" class="btn btn-primary continue-shopping-btn" data-i18n="continueShopping">Continuar a Comprar</a>
-            <a href="#/account?tab=orders" class="btn btn-secondary view-orders-btn" data-i18n="viewOrders">Ver Encomendas</a>
+            <a href="#/products" class="btn btn-primary" id="purchase-success-continue-btn" data-i18n="continueShopping">Continuar a Comprar</a>
+            <a href="#/account?tab=orders" class="btn btn-secondary" data-i18n="viewOrders">Ver Encomendas</a>
         </div>
     </div>
 </div>

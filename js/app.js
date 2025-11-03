@@ -107,6 +107,14 @@ const app = {
     },
 
     init() {
+        const queryParams = new URLSearchParams(window.location.search);
+        if (queryParams.has('payment_intent')) {
+            this.handlePostPayment(queryParams);
+             // Clean the URL to prevent re-processing on refresh
+            const newUrl = window.location.pathname + window.location.hash;
+            history.replaceState(null, '', newUrl);
+        }
+
         this.auth = auth;
         this.db = db;
         this.storage = storage;
@@ -3556,17 +3564,10 @@ const app = {
     },
 
     async renderCheckoutPage(params) {
-        if (this.cart.length === 0 && !params.get('payment_intent_client_secret')) {
+        if (this.cart.length === 0) {
             const container = document.querySelector('#app-root .container');
             if (container) container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Começar a Comprar</a></div>`;
             return;
-        }
-
-        // After a payment, Stripe redirects the user back to this page with URL parameters.
-        // We need to check for these parameters to handle the post-payment logic.
-        if (params.get('payment_intent_client_secret')) {
-            this.handlePostPayment(params);
-            return; // Stop further rendering until the payment status is confirmed.
         }
 
         // Reset loyalty discount when the checkout page is first rendered.
@@ -3912,19 +3913,16 @@ const app = {
         if (!this.stripe) return;
         this.showLoading();
 
-        const clientSecret = params.get('payment_intent_client_secret');
+        const clientSecret = params.get('payment_intent_client_secret') || params.get('payment_intent');
 
 
         const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
 
         switch (paymentIntent.status) {
             case "succeeded":
-                // Optimistically update the user's loyalty points on the client-side.
-                // The backend webhook is the source of truth, but this provides immediate feedback.
+                 // Optimistically update the user's loyalty points on the client-side.
                 if (this.userProfile && this.loyalty.pointsUsed > 0) {
                     const pointsUsed = this.loyalty.pointsUsed;
-                    // We don't add points here, as the final value depends on the total amount paid,
-                    // which is calculated on the backend. We just subtract what was used.
                     this.userProfile.loyaltyPoints = Math.max(0, this.userProfile.loyaltyPoints - pointsUsed);
                 }
 
@@ -4031,13 +4029,8 @@ const app = {
         const closeBtn = modal.querySelector('#purchase-success-close-btn');
         const continueShoppingBtn = modal.querySelector('#purchase-success-continue-btn');
 
-        if (!closeBtn || !continueShoppingBtn) {
-            console.error('Could not find required buttons inside the purchase success modal.');
-            return;
-        }
-
         const closeModal = () => {
-            modal.classList.replace('flex', 'hidden');
+            modal.classList.add('hidden');
         };
 
         const handleContinueShopping = () => {
@@ -4056,14 +4049,7 @@ const app = {
         continueShoppingBtn.addEventListener('click', handleContinueShopping, { once: true });
         modal.addEventListener('click', handleOutsideClick, { once: true });
 
-        modal.classList.replace('hidden', 'flex');
-        // Animate the modal content
-        const content = modal.querySelector('.transform');
-        if (content) {
-            setTimeout(() => {
-                content.classList.remove('scale-95', 'opacity-0');
-            }, 50);
-        }
+        modal.classList.remove('hidden');
     }
 };
 
