@@ -86,6 +86,7 @@ const app = {
     filteredProducts: [],
     currentPage: 1,
     productsPerPage: 12,
+    currentProductPageSearchTerm: '',
     discount: { code: '', percentage: 0, amount: 0 },
     loyalty: { pointsUsed: 0, discountAmount: 0 },
     stripe: null, stripeElements: null, paymentIntentClientSecret: null,
@@ -107,14 +108,6 @@ const app = {
     },
 
     init() {
-        const queryParams = new URLSearchParams(window.location.search);
-        if (queryParams.has('payment_intent')) {
-            this.handlePostPayment(queryParams);
-             // Clean the URL to prevent re-processing on refresh
-            const newUrl = window.location.pathname + window.location.hash;
-            history.replaceState(null, '', newUrl);
-        }
-
         this.auth = auth;
         this.db = db;
         this.storage = storage;
@@ -216,47 +209,6 @@ const app = {
             }
         });
     },
-
-        renderSearchSuggestions(products, searchTerm) {
-            const container = document.getElementById('search-suggestions');
-            if (!container) return;
-
-            if (products.length > 0) {
-                container.innerHTML = `
-                    <h3 class="px-4 py-2 text-sm font-semibold text-gray-400">Produtos</h3>
-                    ${products.slice(0, 5).map(p => {
-                        const imageUrl = (p.images && p.images[0]) || p.image || 'https://placehold.co/100x100/1a1a1a/e11d48?text=Img';
-                        return `
-                        <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center gap-4 px-4 py-2 hover:bg-secondary transition-colors">
-                            <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md">
-                            <div class="flex-1 min-w-0">
-                                <p class="font-semibold text-white truncate">${p.name}</p>
-                                <p class="text-accent text-sm">€${p.price.toFixed(2)}</p>
-                            </div>
-                        </a>
-                        `;
-                    }).join('')}
-                    ${products.length > 5 ? `
-                    <a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center py-3 bg-secondary hover:bg-gray-700 font-semibold text-accent">
-                        Ver todos os ${products.length} resultados
-                    </a>` : ''}
-                `;
-            } else {
-                const categories = [...new Set(this.products.map(p => p.category).filter(Boolean))].slice(0, 4);
-                container.innerHTML = `
-                    <div class="p-4 text-center">
-                        <p class="text-gray-400 mb-4">Nenhum produto encontrado para "${searchTerm}".</p>
-                        <h4 class="font-semibold text-white mb-2">Sugestões de Categorias:</h4>
-                        <div class="flex flex-wrap justify-center gap-2">
-                            ${categories.map(cat => `
-                                <a href="#/products?category=${cat}" class="search-suggestion-item bg-secondary hover:bg-gray-700 text-sm py-1 px-3 rounded-full">${cat.charAt(0).toUpperCase() + cat.slice(1)}</a>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-            }
-            container.classList.remove('hidden');
-        },
 
     async initLanguageSwitcher() {
         const switcherBtn = document.getElementById('lang-switcher-btn');
@@ -413,19 +365,6 @@ const app = {
             const target = e.target;
             const closest = (selector) => target.closest(selector);
 
-            // Specific handler for search suggestions MUST come before generic links
-            const searchSuggestionLink = closest('.search-suggestion-item, #search-suggestions .block.text-center');
-            if (searchSuggestionLink) {
-                const link = closest('a');
-                if (link && link.href) {
-                    e.preventDefault();
-                    const destination = new URL(link.href).hash.substring(1);
-                    this.closeSearch(); // Close and clear first
-                    this.navigateTo(destination);
-                    return; // Stop further processing
-                }
-            }
-
             if (closest('.add-to-cart-btn')) {
                 e.preventDefault();
                 const button = closest('.add-to-cart-btn');
@@ -460,6 +399,9 @@ const app = {
             // Delegated search listeners
             else if (closest('#search-icon')) { this.openSearch(); }
             else if (closest('#close-search-btn')) { this.closeSearch(); }
+            else if (closest('.search-suggestion-item') || closest('#search-suggestions .block.text-center')) {
+                setTimeout(() => this.closeSearch(), 50); // Timeout to allow navigation
+            }
         });
 
         // Use a separate listener for clicks that should close the search, to avoid conflicts.
@@ -730,7 +672,8 @@ const app = {
     },
 
     initProductsPage(params) {
-        const searchTerm = params.get('q');
+        this.currentProductPageSearchTerm = params.get('q') || '';
+        const searchTerm = this.currentProductPageSearchTerm;
         if (searchTerm) {
             const searchInput = document.getElementById('search-input');
             if (searchInput) searchInput.value = searchTerm;
@@ -2560,18 +2503,8 @@ const app = {
 
     closeSearch() {
         const searchOverlay = document.getElementById('search-overlay');
-        const searchInput = document.getElementById('search-input');
-        const suggestionsContainer = document.getElementById('search-suggestions');
-
         if (searchOverlay) {
             searchOverlay.classList.add('hidden');
-        }
-        if (searchInput) {
-            searchInput.value = ''; // Limpa o texto
-        }
-        if (suggestionsContainer) {
-            suggestionsContainer.innerHTML = ''; // Limpa as sugestões
-            suggestionsContainer.classList.add('hidden');
         }
     },
 
@@ -3174,22 +3107,15 @@ const app = {
     applyLoyaltyPoints() {
         const input = document.getElementById('loyalty-points-input');
         const messageEl = document.getElementById('loyalty-message');
-        let pointsToRedeem = parseInt(input.value);
+        const pointsToRedeem = parseInt(input.value);
 
         messageEl.textContent = '';
         messageEl.classList.remove('text-green-400', 'text-red-400');
-
-        if (!isNaN(pointsToRedeem) && pointsToRedeem < 0) {
-            pointsToRedeem = Math.floor(this.userProfile.loyaltyPoints);
-            input.value = pointsToRedeem;
-        }
 
         if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) {
             this.showToast('Por favor, insira um número válido de pontos.', 'error');
             messageEl.textContent = 'Número inválido.';
             messageEl.classList.add('text-red-400');
-            this.loyalty = { pointsUsed: 0, discountAmount: 0 };
-            this.updateCheckoutSummary();
             return;
         }
 
@@ -3325,7 +3251,7 @@ const app = {
     },
 
     applyFilters(isInitialLoad = false) {
-        const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
+        const searchTerm = this.currentProductPageSearchTerm.toLowerCase();
         let filtered = [...this.products];
 
         // Filter by search term if present
@@ -3454,7 +3380,7 @@ const app = {
 
     async initAccountPage(initialTab = 'dashboard') {
         if (sessionStorage.getItem('paymentSuccess')) {
-            this.showPurchaseSuccessModal();
+            this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
             sessionStorage.removeItem('paymentSuccess');
         }
 
@@ -3632,10 +3558,17 @@ const app = {
     },
 
     async renderCheckoutPage(params) {
-        if (this.cart.length === 0) {
+        if (this.cart.length === 0 && !params.get('payment_intent_client_secret')) {
             const container = document.querySelector('#app-root .container');
             if (container) container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Começar a Comprar</a></div>`;
             return;
+        }
+
+        // After a payment, Stripe redirects the user back to this page with URL parameters.
+        // We need to check for these parameters to handle the post-payment logic.
+        if (params.get('payment_intent_client_secret')) {
+            this.handlePostPayment(params);
+            return; // Stop further rendering until the payment status is confirmed.
         }
 
         // Reset loyalty discount when the checkout page is first rendered.
@@ -3956,7 +3889,7 @@ const app = {
             elements: this.stripeElements,
             confirmParams: {
                 // The return_url is where the user will be redirected after payment.
-                return_url: `${window.location.origin}${window.location.pathname}#/account?tab=orders`,
+                return_url: `${window.location.origin}${window.location.pathname}#/checkout`,
             },
         });
 
@@ -3981,19 +3914,13 @@ const app = {
         if (!this.stripe) return;
         this.showLoading();
 
-        const clientSecret = params.get('payment_intent_client_secret') || params.get('payment_intent');
+        const clientSecret = params.get('payment_intent_client_secret');
 
 
         const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
 
         switch (paymentIntent.status) {
             case "succeeded":
-                 // Optimistically update the user's loyalty points on the client-side.
-                if (this.userProfile && this.loyalty.pointsUsed > 0) {
-                    const pointsUsed = this.loyalty.pointsUsed;
-                    this.userProfile.loyaltyPoints = Math.max(0, this.userProfile.loyaltyPoints - pointsUsed);
-                }
-
                 // The webhook will handle order creation. We just need to clear the local state.
                 this.cart = [];
                 this.loyalty = { pointsUsed: 0, discountAmount: 0 };
@@ -4004,9 +3931,8 @@ const app = {
                 // Set a flag to show a success message on the next page.
                 sessionStorage.setItem('paymentSuccess', 'true');
 
-                // Force a hard reload to ensure all data is refreshed.
-                window.location.href = '/#/account?tab=orders';
-                window.location.reload();
+                // Redirect the user to the order confirmation page.
+                this.navigateTo('/account?tab=orders');
                 break;
             case "processing":
                 this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
@@ -4057,6 +3983,26 @@ const app = {
         if (imageUrl) document.querySelector('meta[property="twitter:image"]').setAttribute('content', imageUrl);
     },
 
+    showPurchaseSuccessModal() {
+        const modal = document.getElementById('purchase-success-modal');
+        if (modal) {
+            modal.classList.replace('hidden', 'flex');
+            // Adiciona event listeners para fechar o modal
+            const closeBtn = modal.querySelector('.close-modal-btn');
+            const continueShoppingBtn = modal.querySelector('#continue-shopping-btn');
+            const overlay = modal.querySelector('.modal-overlay');
+
+            const closeModal = () => modal.classList.replace('flex', 'hidden');
+
+            if (closeBtn) closeBtn.addEventListener('click', closeModal, { once: true });
+            if (continueShoppingBtn) continueShoppingBtn.addEventListener('click', () => {
+                closeModal();
+                this.navigateTo('/products');
+            }, { once: true });
+            if (overlay) overlay.addEventListener('click', closeModal, { once: true });
+        }
+    },
+
     updateMetaTagsForPage(path, params) {
         const defaultTitle = 'Desire - Liberte as Suas Fantasias';
         const defaultDescription = 'Explore uma coleção de luxo de brinquedos e acessórios para adultos, desenhados para o prazer e bem-estar. Compra segura e discreta na Desire.';
@@ -4085,41 +4031,8 @@ const app = {
         }
 
         this.updateMetaTags(title, description, imageUrl);
-    },
-
-    showPurchaseSuccessModal() {
-        const modal = document.getElementById('purchase-success-modal');
-        if (!modal) {
-            console.error('Purchase success modal not found in the DOM.');
-            this.showToast('Compra efetuada com sucesso!', 'success');
-            return;
-        }
-
-        const closeBtn = modal.querySelector('#purchase-success-close-btn');
-        const continueShoppingBtn = modal.querySelector('#purchase-success-continue-btn');
-
-        const closeModal = () => {
-            modal.classList.add('hidden');
-        };
-
-        const handleContinueShopping = () => {
-            closeModal();
-            this.navigateTo('/products');
-        };
-
-        const handleOutsideClick = (e) => {
-            if (e.target === modal) {
-                closeModal();
-            }
-        };
-
-        // Use { once: true } to auto-cleanup listeners
-        closeBtn.addEventListener('click', closeModal, { once: true });
-        continueShoppingBtn.addEventListener('click', handleContinueShopping, { once: true });
-        modal.addEventListener('click', handleOutsideClick, { once: true });
-
-        modal.classList.remove('hidden');
     }
 };
 
+window.app = app; // Expose for debugging/testing
 document.addEventListener('DOMContentLoaded', () => app.init());
