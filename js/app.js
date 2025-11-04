@@ -86,7 +86,6 @@ const app = {
     filteredProducts: [],
     currentPage: 1,
     productsPerPage: 12,
-    currentProductPageSearchTerm: '',
     discount: { code: '', percentage: 0, amount: 0 },
     loyalty: { pointsUsed: 0, discountAmount: 0 },
     stripe: null, stripeElements: null, paymentIntentClientSecret: null,
@@ -672,8 +671,7 @@ const app = {
     },
 
     initProductsPage(params) {
-        this.currentProductPageSearchTerm = params.get('q') || '';
-        const searchTerm = this.currentProductPageSearchTerm;
+        const searchTerm = params.get('q');
         if (searchTerm) {
             const searchInput = document.getElementById('search-input');
             if (searchInput) searchInput.value = searchTerm;
@@ -2506,6 +2504,15 @@ const app = {
         if (searchOverlay) {
             searchOverlay.classList.add('hidden');
         }
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (suggestionsContainer) {
+            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.classList.add('hidden');
+        }
     },
 
     initSearch() {
@@ -2542,6 +2549,35 @@ const app = {
                 this.closeSearch();
             }
         });
+    },
+
+    renderSearchSuggestions(products, searchTerm) {
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (!suggestionsContainer) return;
+
+        if (products.length === 0) {
+            suggestionsContainer.innerHTML = `<p class="p-4 text-center text-gray-400">Nenhum produto encontrado.</p>`;
+            suggestionsContainer.classList.remove('hidden');
+            return;
+        }
+
+        const itemsHtml = products.slice(0, 5).map(p => {
+            const imageUrl = (p.images && p.images[0]) || p.image;
+            return `
+                <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
+                    <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4" onerror="this.onerror=null;this.src='https://placehold.co/48x48/1a1a1a/e11d48?text=Img';">
+                    <div>
+                        <p class="font-semibold text-white">${p.name}</p>
+                        <p class="text-sm text-accent">€${p.price.toFixed(2)}</p>
+                    </div>
+                </a>
+            `;
+        }).join('');
+
+        const seeAllHtml = `<a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center p-3 font-semibold text-accent hover:bg-secondary transition-colors">Ver todos os ${products.length} resultados</a>`;
+
+        suggestionsContainer.innerHTML = itemsHtml + seeAllHtml;
+        suggestionsContainer.classList.remove('hidden');
     },
 
     initMobileMenu() {
@@ -3251,7 +3287,7 @@ const app = {
     },
 
     applyFilters(isInitialLoad = false) {
-        const searchTerm = this.currentProductPageSearchTerm.toLowerCase();
+        const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
         let filtered = [...this.products];
 
         // Filter by search term if present
@@ -3378,9 +3414,40 @@ const app = {
 
     initProductSorting() { document.getElementById('sort')?.addEventListener('change', () => this.applyFilters()); },
 
+    showPurchaseSuccessModal() {
+        const modal = document.getElementById('purchase-success-modal');
+        if (!modal) return;
+
+        const content = modal.querySelector('.transform');
+        const close = () => {
+            content.classList.remove('opacity-100', 'scale-100');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        };
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => {
+            content.classList.add('opacity-100', 'scale-100');
+        }, 10);
+
+        // Close modal if user clicks outside of it
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                close();
+            }
+        });
+
+        // Make sure the buttons also close the modal before navigating
+        document.getElementById('view-orders-btn').addEventListener('click', close);
+        document.getElementById('continue-shopping-btn').addEventListener('click', close);
+    },
+
     async initAccountPage(initialTab = 'dashboard') {
         if (sessionStorage.getItem('paymentSuccess')) {
-            this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
+            this.showPurchaseSuccessModal();
             sessionStorage.removeItem('paymentSuccess');
         }
 
@@ -3931,6 +3998,10 @@ const app = {
                 // Set a flag to show a success message on the next page.
                 sessionStorage.setItem('paymentSuccess', 'true');
 
+                // Force a reload of user profile and orders
+                await this.loadUserProfile();
+                await this.loadOrders();
+
                 // Redirect the user to the order confirmation page.
                 this.navigateTo('/account?tab=orders');
                 break;
@@ -3983,26 +4054,6 @@ const app = {
         if (imageUrl) document.querySelector('meta[property="twitter:image"]').setAttribute('content', imageUrl);
     },
 
-    showPurchaseSuccessModal() {
-        const modal = document.getElementById('purchase-success-modal');
-        if (modal) {
-            modal.classList.replace('hidden', 'flex');
-            // Adiciona event listeners para fechar o modal
-            const closeBtn = modal.querySelector('.close-modal-btn');
-            const continueShoppingBtn = modal.querySelector('#continue-shopping-btn');
-            const overlay = modal.querySelector('.modal-overlay');
-
-            const closeModal = () => modal.classList.replace('flex', 'hidden');
-
-            if (closeBtn) closeBtn.addEventListener('click', closeModal, { once: true });
-            if (continueShoppingBtn) continueShoppingBtn.addEventListener('click', () => {
-                closeModal();
-                this.navigateTo('/products');
-            }, { once: true });
-            if (overlay) overlay.addEventListener('click', closeModal, { once: true });
-        }
-    },
-
     updateMetaTagsForPage(path, params) {
         const defaultTitle = 'Desire - Liberte as Suas Fantasias';
         const defaultDescription = 'Explore uma coleção de luxo de brinquedos e acessórios para adultos, desenhados para o prazer e bem-estar. Compra segura e discreta na Desire.';
@@ -4034,5 +4085,4 @@ const app = {
     }
 };
 
-window.app = app; // Expose for debugging/testing
 document.addEventListener('DOMContentLoaded', () => app.init());
