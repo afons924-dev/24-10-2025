@@ -106,14 +106,27 @@ const app = {
         };
     },
 
-    init() {
+    async init() {
         this.auth = auth;
         this.db = db;
         this.storage = storage;
         this.functions = getFunctions();
+
+        // Always init stripe first
         this.initStripe();
+
+        // Check for Stripe redirect URL params immediately on load
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('payment_intent_client_secret')) {
+            // Delay app start until payment is handled
+            await this.handlePostPayment(urlParams);
+            // Clean up URL after handling
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        }
+
+        // Standard app initialization can now proceed
         this.initCookieConsent();
-        this.initAgeGate();
+        this.initAgeGate(); // This will call startApp() which renders the correct page
         this.initThemeSwitcher();
         this.initLanguageSwitcher();
     },
@@ -374,7 +387,7 @@ const app = {
             else if (closest('.quick-view-btn')) this.openPreviewModal(closest('.quick-view-btn').dataset.id);
             else if (closest('.quantity-change')) this.updateCartQuantity(closest('[data-id]').dataset.id, closest('.quantity-change').dataset.action);
             else if (closest('.remove-item')) this.removeFromCart(closest('[data-id]').dataset.id);
-            else if (closest('a[href^="#/"]') && !e.target.closest('a').target) { e.preventDefault(); this.navigateTo(new URL(e.target.closest('a').href).hash.substring(1)); }
+            else if (closest('a[href^="#/"]') && !closest('.search-suggestion-item') && !e.target.closest('a').target) { e.preventDefault(); this.navigateTo(new URL(e.target.closest('a').href).hash.substring(1)); }
             else if (closest('#login-btn')) this.openAuthModal('login');
             else if (closest('.category-filter-btn')) { e.preventDefault(); this.handleCategoryFilterClick(closest('.category-filter-btn')); }
             else if (closest('.accordion-header')) this.toggleAccordion(closest('.accordion-header'));
@@ -3629,13 +3642,6 @@ const app = {
             const container = document.querySelector('#app-root .container');
             if (container) container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Começar a Comprar</a></div>`;
             return;
-        }
-
-        // After a payment, Stripe redirects the user back to this page with URL parameters.
-        // We need to check for these parameters to handle the post-payment logic.
-        if (params.get('payment_intent_client_secret')) {
-            this.handlePostPayment(params);
-            return; // Stop further rendering until the payment status is confirmed.
         }
 
         // Reset loyalty discount when the checkout page is first rendered.
