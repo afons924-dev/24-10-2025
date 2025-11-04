@@ -184,13 +184,14 @@ const fulfillOrder = async (paymentIntent) => {
 
     const orderRef = db.collection("orders").doc();
     const userRef = db.collection("users").doc(userId);
+    const mailCollection = db.collection("mail");
+    const ADMIN_EMAIL = "geral@darkdesire.pt"; // Centralized admin email
 
     try {
+        // Run the core logic within a transaction
         await db.runTransaction(async (transaction) => {
             const userDoc = await transaction.get(userRef);
-            if (!userDoc.exists) {
-                throw new Error(`User ${userId} not found.`);
-            }
+            if (!userDoc.exists) throw new Error(`User ${userId} not found.`);
             const userProfile = userDoc.data();
 
             const productRefs = cart.map(item => db.collection("products").doc(item.id));
@@ -200,15 +201,15 @@ const fulfillOrder = async (paymentIntent) => {
 
             for (let i = 0; i < cart.length; i++) {
                 const productDoc = productDocs[i];
-                if (!productDoc.exists) {
-                    throw new Error(`Product with ID ${cart[i].id} not found.`);
-                }
+                if (!productDoc.exists) throw new Error(`Product with ID ${cart[i].id} not found.`);
+
                 const productData = productDoc.data();
                 const cartItem = cart[i];
 
                 if (productData.stock < cartItem.quantity) {
-                    throw new Error(`Stock insufficient for ${productData.name}.`);
+                    throw new Error(`Stock insufficient for ${productData.name} (ID: ${cartItem.id}). Requested: ${cartItem.quantity}, Available: ${productData.stock}`);
                 }
+
                 const newStock = productData.stock - cartItem.quantity;
                 const newSoldCount = (productData.sold || 0) + cartItem.quantity;
                 productUpdates.push({ ref: productDoc.ref, data: { stock: newStock, sold: newSoldCount } });
@@ -223,38 +224,28 @@ const fulfillOrder = async (paymentIntent) => {
 
             const total = paymentIntent.amount / 100;
             const pointsToAward = Math.floor(total);
-
             const orderData = {
-                userId: userId,
-                items: fullCartItems,
-                total: total,
+                userId: userId, items: fullCartItems, total: total,
                 paymentIntentId: paymentIntent.id,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                shippingAddress: userProfile.address,
-                status: 'Em processamento'
+                shippingAddress: userProfile.address, status: 'Em processamento'
             };
             transaction.set(orderRef, orderData);
 
             productUpdates.forEach(update => transaction.update(update.ref, update.data));
 
-            // Calculate final loyalty points: subtract used points and add newly awarded points.
             const pointsUsed = parseInt(paymentIntent.metadata.loyaltyPointsUsed) || 0;
             const currentPoints = userProfile.loyaltyPoints || 0;
             const newPoints = currentPoints - pointsUsed + pointsToAward;
-
             transaction.update(userRef, { loyaltyPoints: newPoints, cart: [] });
         });
 
-        // Delete the temporary session document
-        await sessionRef.delete();
-
-        // Send confirmation emails
-        const userDoc = await userRef.get();
+        // If transaction is successful, send confirmation emails
+        const userDoc = await userRef.get(); // Re-fetch user doc to get latest data
         if (userDoc.exists) {
             const userProfile = userDoc.data();
             const total = paymentIntent.amount / 100;
-            const mailCollection = db.collection("mail");
 
             await mailCollection.add({
                 to: userProfile.email,
@@ -264,7 +255,6 @@ const fulfillOrder = async (paymentIntent) => {
                 },
             });
 
-            const ADMIN_EMAIL = "YOUR_ADMIN_EMAIL"; // TODO: Replace with your actual admin email
             await mailCollection.add({
                 to: ADMIN_EMAIL,
                 message: {
@@ -273,10 +263,36 @@ const fulfillOrder = async (paymentIntent) => {
                 },
             });
         }
-
         console.log(`Successfully fulfilled order for Payment Intent: ${paymentIntent.id}`);
+
     } catch (error) {
-        console.error(`Error fulfilling order for Payment Intent ${paymentIntent.id}:`, error);
+        console.error(`CRITICAL: Error fulfilling order for Payment Intent ${paymentIntent.id}:`, error);
+
+        // Send notification emails on failure
+        const userDoc = await userRef.get();
+        if (userDoc.exists) {
+            const userProfile = userDoc.data();
+            await mailCollection.add({
+                to: userProfile.email,
+                message: {
+                    subject: `Ação necessária: Problema com a sua encomenda`,
+                    html: `<h1>Problema no Processamento da Encomenda</h1><p>Olá ${userProfile.firstName || ''},</p><p>Obrigado pela sua compra. O seu pagamento foi bem-sucedido, mas encontrámos um erro ao processar a sua encomenda (ex: produto fora de stock).</p><p><strong>Não se preocupe, a nossa equipa já foi notificada e irá resolver a situação manualmente.</strong> Entraremos em contacto em breve para confirmar os detalhes.</p><p>ID do Pagamento para referência: ${paymentIntent.id}</p><p>Pedimos desculpa pelo inconveniente.</p>`,
+                },
+            });
+        }
+
+        await mailCollection.add({
+            to: ADMIN_EMAIL,
+            message: {
+                subject: `URGENTE: Falha no processamento da encomenda ${paymentIntent.id}`,
+                html: `<h1>Falha Crítica no Processamento da Encomenda</h1><p>O pagamento para o Payment Intent <strong>${paymentIntent.id}</strong> foi bem-sucedido, mas a transação para criar a encomenda falhou.</p><p><strong>Ação manual necessária.</strong></p><p><strong>Motivo do Erro:</strong> ${error.message}</p><p><strong>User ID:</strong> ${userId}</p><p>Verifique o stock e crie a encomenda manualmente. O carrinho do cliente NÃO foi limpo.</p>`,
+            },
+        });
+
+    } finally {
+        // ALWAYS delete the temporary session document to prevent reprocessing
+        await sessionRef.delete();
+        console.log(`Cleaned up session document for Payment Intent: ${paymentIntent.id}`);
     }
 };
 
