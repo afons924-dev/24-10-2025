@@ -377,16 +377,6 @@ const app = {
             const target = e.target;
             const closest = (selector) => target.closest(selector);
 
-            // Handle closing the search overlay first
-            const searchOverlay = document.getElementById('search-overlay');
-            if (searchOverlay && !searchOverlay.classList.contains('hidden')) {
-                const searchContainer = searchOverlay.querySelector('.relative');
-                // Close if the click is outside the search container AND not on the search icon
-                if (searchContainer && !searchContainer.contains(target) && !closest('#search-icon')) {
-                    this.closeSearch();
-                }
-            }
-
             if (closest('.add-to-cart-btn')) {
                 e.preventDefault();
                 const button = closest('.add-to-cart-btn');
@@ -397,6 +387,18 @@ const app = {
             else if (closest('.quick-view-btn')) this.openPreviewModal(closest('.quick-view-btn').dataset.id);
             else if (closest('.quantity-change')) this.updateCartQuantity(closest('[data-id]').dataset.id, closest('.quantity-change').dataset.action);
             else if (closest('.remove-item')) this.removeFromCart(closest('[data-id]').dataset.id);
+            // Delegated search listeners must come before the generic link handler
+            else if (closest('#search-icon')) { this.openSearch(); }
+            else if (closest('#close-search-btn')) { this.closeSearch(); }
+            else if (closest('.search-suggestion-item')) {
+                // Clicking a specific item, allow navigation before closing
+                setTimeout(() => this.closeSearch(), 50);
+            }
+             else if (closest('#search-suggestions a.block')) {
+                // This specifically targets the "See all results" link.
+                // We can close it immediately, navigation will still occur.
+                this.closeSearch();
+            }
             else if (closest('a[href^="#/"]') && !closest('.search-suggestion-item') && !e.target.closest('a').target) { e.preventDefault(); this.navigateTo(new URL(e.target.closest('a').href).hash.substring(1)); }
             else if (closest('#login-btn')) this.openAuthModal('login');
             else if (closest('.category-filter-btn')) { e.preventDefault(); this.handleCategoryFilterClick(closest('.category-filter-btn')); }
@@ -417,12 +419,6 @@ const app = {
             else if (closest('.notify-me-btn')) {
                 e.preventDefault();
                 this.openNotifyMeModal(closest('.notify-me-btn').dataset.id);
-            }
-            // Delegated search listeners
-            else if (closest('#search-icon')) { this.openSearch(); }
-            else if (closest('#close-search-btn')) { this.closeSearch(); }
-            else if (closest('.search-suggestion-item') || closest('#search-suggestions .block.text-center')) {
-                setTimeout(() => this.closeSearch(), 50); // Timeout to allow navigation
             }
         });
 
