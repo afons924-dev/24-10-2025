@@ -377,6 +377,16 @@ const app = {
             const target = e.target;
             const closest = (selector) => target.closest(selector);
 
+            // Handle closing the search overlay first
+            const searchOverlay = document.getElementById('search-overlay');
+            if (searchOverlay && !searchOverlay.classList.contains('hidden')) {
+                const searchContainer = searchOverlay.querySelector('.relative');
+                // Close if the click is outside the search container AND not on the search icon
+                if (searchContainer && !searchContainer.contains(target) && !closest('#search-icon')) {
+                    this.closeSearch();
+                }
+            }
+
             if (closest('.add-to-cart-btn')) {
                 e.preventDefault();
                 const button = closest('.add-to-cart-btn');
@@ -419,12 +429,18 @@ const app = {
         // Use a separate listener for clicks that should close the search, to avoid conflicts.
         document.addEventListener('click', (e) => {
             const searchOverlay = document.getElementById('search-overlay');
-            if (searchOverlay && !searchOverlay.classList.contains('hidden')) {
-                const searchContainer = searchOverlay.querySelector('.relative');
-                // Close if the click is outside the search container AND not on the search icon that opens it.
-                if (searchContainer && !searchContainer.contains(e.target) && !e.target.closest('#search-icon')) {
-                     this.closeSearch();
-                }
+            // If the search is closed, do nothing.
+            if (!searchOverlay || searchOverlay.classList.contains('hidden')) {
+                return;
+            }
+
+            const searchContainer = searchOverlay.querySelector('.relative');
+            const clickedInsideSearch = searchContainer && searchContainer.contains(e.target);
+            const clickedOnSearchIcon = e.target.closest('#search-icon');
+
+            // If the click is outside the search area and not on the icon that opens it, close.
+            if (!clickedInsideSearch && !clickedOnSearchIcon) {
+                this.closeSearch();
             }
         });
 
