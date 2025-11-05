@@ -112,23 +112,14 @@ const app = {
         this.storage = storage;
         this.functions = getFunctions();
 
-        // Always init stripe first
+        // Basic setup that doesn't depend on auth or page content
         this.initStripe();
-
-        // Check for Stripe redirect URL params immediately on load
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('payment_intent_client_secret')) {
-            // Delay app start until payment is handled
-            await this.handlePostPayment(urlParams);
-            // Clean up URL after handling
-            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
-        }
-
-        // Standard app initialization can now proceed
         this.initCookieConsent();
-        this.initAgeGate(); // This will call startApp() which renders the correct page
         this.initThemeSwitcher();
         this.initLanguageSwitcher();
+
+        // Age gate must be handled before starting the main app logic
+        this.initAgeGate(); // This will call startApp()
     },
 
     initStripe() {
@@ -268,7 +259,16 @@ const app = {
 
     async startApp() {
         this.addEventListeners();
-        await this.handleAuthState();
+        await this.handleAuthState(); // Auth is now ready
+
+        // Check for Stripe redirect URL params now that auth is complete
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('payment_intent_client_secret')) {
+            await this.handlePostPayment(urlParams);
+            // Clean up URL to prevent reprocessing on refresh
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        }
+
         await this.loadProducts();
         await this.renderPage();
     },
@@ -4000,43 +4000,50 @@ const app = {
         this.showLoading();
 
         const clientSecret = params.get('payment_intent_client_secret');
-
-
-        const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
-
-        switch (paymentIntent.status) {
-            case "succeeded":
-                // The webhook will handle order creation. We just need to clear the local state.
-                this.cart = [];
-                this.loyalty = { pointsUsed: 0, discountAmount: 0 };
-                this.discount = { code: '', percentage: 0, amount: 0 };
-                await this.saveCart(); // This will save an empty cart to Firestore.
-                this.updateCartCountDisplay();
-
-                // Set a flag to show a success message on the next page.
-                sessionStorage.setItem('paymentSuccess', 'true');
-
-                // Force a reload of user profile and orders
-                await this.loadUserProfile();
-                await this.loadOrders();
-
-                // Redirect the user to the order confirmation page.
-                this.navigateTo('/account?tab=orders');
-                break;
-            case "processing":
-                this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
-                this.navigateTo('/account?tab=orders');
-                break;
-            case "requires_payment_method":
-                this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
-            default:
-                this.showToast("Algo correu mal com o pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
+        if (!clientSecret) {
+            this.hideLoading();
+            return;
         }
-        this.hideLoading();
+
+        try {
+            const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
+
+            switch (paymentIntent.status) {
+                case "succeeded":
+                    this.showToast("Pagamento bem-sucedido! A sua encomenda está a ser processada.");
+
+                    // Clear local cart for immediate UI feedback.
+                    // The backend webhook is the source of truth for clearing the cart in Firestore.
+                    this.cart = [];
+                    this.loyalty = { pointsUsed: 0, discountAmount: 0 };
+                    this.discount = { code: '', percentage: 0, amount: 0 };
+                    this.updateCartCountDisplay(); // Update UI immediately
+
+                    // Set a flag to show a success message on the account page.
+                    sessionStorage.setItem('paymentSuccess', 'true');
+
+                    // Redirect the user to their orders page.
+                    this.navigateTo('/account?tab=orders');
+                    break;
+                case "processing":
+                    this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
+                    this.navigateTo('/account?tab=orders');
+                    break;
+                case "requires_payment_method":
+                    this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
+                    this.navigateTo('/checkout'); // Send back to checkout
+                    break;
+                default:
+                    this.showToast("Algo correu mal com o pagamento. Por favor, tente novamente.", "error");
+                    this.navigateTo('/checkout'); // Send back to checkout
+                    break;
+            }
+        } catch (error) {
+            console.error("Error retrieving payment intent:", error);
+            this.showToast("Não foi possível verificar o estado do seu pagamento.", "error");
+        } finally {
+            this.hideLoading();
+        }
     },
 
     initExitIntentPopup() {
