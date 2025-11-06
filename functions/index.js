@@ -1,4 +1,5 @@
-const functions = require("firebase-functions");
+const {onRequest} = require("firebase-functions/v2/https");
+const {onCall} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const axios = require("axios");
 const cheerio = require("cheerio");
@@ -51,7 +52,7 @@ if (stripeConfig && stripeConfig.secret) {
  * It now securely calculates the total on the server-side and uses a temporary
  * Firestore document to pass cart data, avoiding metadata limits.
  */
-exports.createStripePaymentIntent = functions.region('europe-west3').https.onRequest((req, res) => {
+exports.createStripePaymentIntent = onRequest({region: 'europe-west3'}, (req, res) => {
     cors(req, res, async () => {
         if (!stripe) {
             console.error("Stripe not configured.");
@@ -298,7 +299,7 @@ const fulfillOrder = async (paymentIntent) => {
 /**
  * Handles webhook events from Stripe to update order status.
  */
-exports.stripeWebhook = functions.region('europe-west3').https.onRequest(async (req, res) => {
+exports.stripeWebhook = onRequest({region: 'europe-west3'}, async (req, res) => {
     let event;
 
     // Securely verify the webhook signature.
@@ -345,7 +346,7 @@ exports.stripeWebhook = functions.region('europe-west3').https.onRequest(async (
  * Scrapes product data from an AliExpress URL.
  * This is a callable function that requires the user to be authenticated.
  */
-exports.scrapeAliExpress = functions.region('europe-west3').https.onCall(async (data, context) => {
+exports.scrapeAliExpress = onCall({region: 'europe-west3'}, async (data, context) => {
     // Check for authentication
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
@@ -435,7 +436,7 @@ exports.scrapeAliExpress = functions.region('europe-west3').https.onCall(async (
  * Handles Server-Side Rendering (SSR) for SEO and social sharing.
  * It uses the renderer module to generate HTML for specific routes.
  */
-exports.ssr = functions.region('europe-west3').https.onRequest(async (req, res) => {
+exports.ssr = onRequest({region: 'europe-west3'}, async (req, res) => {
     return renderer.render(req, res);
 });
 
@@ -444,7 +445,7 @@ exports.ssr = functions.region('europe-west3').https.onRequest(async (req, res) 
  * This is an administrative function and should be protected.
  * Only callable by an already authenticated admin.
  */
-exports.setAdminClaim = functions.region('europe-west3').https.onCall(async (data, context) => {
+exports.setAdminClaim = onCall({region: 'europe-west3'}, async (data, context) => {
     // Check if the caller is an admin.
     // Note: The first admin must be set manually via Firebase console or gcloud CLI.
     if (context.auth.token.isAdmin !== true) {
