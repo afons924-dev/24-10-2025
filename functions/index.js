@@ -53,127 +53,115 @@ if (stripeConfig && stripeConfig.secret) {
  */
 exports.createStripePaymentIntent = functions.region('europe-west3').https.onRequest((req, res) => {
     cors(req, res, async () => {
-        console.log("createStripePaymentIntent: Function triggered.");
-
-        // Add a guard clause to ensure Stripe was initialized.
         if (!stripe) {
-            console.error("createStripePaymentIntent: Stripe is not initialized. Check your Firebase functions configuration for stripe.secret.");
-            return res.status(500).send({ error: "Stripe is not configured on the server. The admin needs to set the secret key." });
+            console.error("Stripe not configured.");
+            return res.status(500).send({ error: "Internal payment server error." });
         }
 
-        const { userId, cart, loyaltyPoints } = req.body;
-        console.log(`createStripePaymentIntent: Received request for userId: ${userId}`);
+        const { userId, cart, loyaltyPoints, discount } = req.body;
 
         if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
-            console.error("createStripePaymentIntent: Invalid parameters received.", { userId, cart });
-            return res.status(400).send({ error: "Missing or invalid parameters: userId and cart are required." });
+            return res.status(400).send({ error: "Missing user ID or cart." });
         }
 
         try {
-            console.log("createStripePaymentIntent: Fetching user document...");
             const userRef = db.collection("users").doc(userId);
             const userDoc = await userRef.get();
             if (!userDoc.exists) {
-                console.error(`createStripePaymentIntent: User not found for ID: ${userId}`);
                 return res.status(404).send({ error: "User not found." });
             }
             const userProfile = userDoc.data();
-            console.log("createStripePaymentIntent: User document fetched successfully.");
 
-            // Calculate total amount on the server by fetching prices from Firestore
-            let amount = 0;
-            console.log("createStripePaymentIntent: Calculating total amount from cart items...");
-            for (const item of cart) {
-                const productRef = db.collection("products").doc(item.id);
-                const productDoc = await productRef.get();
-                if (productDoc.exists) {
-                    const price = productDoc.data().price;
-                    amount += price * item.quantity;
-                    console.log(`createStripePaymentIntent: Item ${item.id} - Price: ${price}, Quantity: ${item.quantity}. Subtotal: ${amount}`);
-                } else {
-                    console.warn(`createStripePaymentIntent: Product with ID ${item.id} not found during amount calculation.`);
-                }
-            }
-            console.log(`createStripePaymentIntent: Gross amount calculated: €${amount.toFixed(2)}`);
-
-            // Apply loyalty points discount on the server
-            const availablePoints = userProfile.loyaltyPoints || 0;
-            const pointsToRedeem = loyaltyPoints || 0;
-
-            if (pointsToRedeem > 0) {
-                console.log(`createStripePaymentIntent: Applying ${pointsToRedeem} loyalty points (Available: ${availablePoints}).`);
-                if (pointsToRedeem > availablePoints) {
-                    console.error("createStripePaymentIntent: User tried to use more loyalty points than available.");
-                    return res.status(400).send({ error: "Insufficient loyalty points." });
-                }
-                const discountAmount = pointsToRedeem / 100; // 100 points = 1€
-                amount -= discountAmount;
-                console.log(`createStripePaymentIntent: Discount of €${discountAmount.toFixed(2)} applied. New total: €${amount.toFixed(2)}`);
-            }
-
-            amount = Math.max(amount, 0); // Ensure amount is not negative
-            const amountInCents = Math.round(amount * 100);
-            console.log(`createStripePaymentIntent: Final amount in cents: ${amountInCents}`);
-
-            // Ensure the amount is above Stripe's minimum if it's not free
-            if (amountInCents > 0 && amountInCents < 50) { // €0.50 minimum
-                console.error(`createStripePaymentIntent: Amount ${amountInCents} cents is below Stripe's minimum.`);
-                return res.status(400).send({ error: `Amount is too small. Minimum charge is €0.50. Amount calculated: €${amount.toFixed(2)}` });
-            }
-
-            console.log("createStripePaymentIntent: Creating Stripe Payment Intent...");
-            // Create the Payment Intent with the server-calculated amount
-            const paymentIntent = await stripe.paymentIntents.create({
-                amount: amountInCents,
-                currency: "eur",
-                automatic_payment_methods: { enabled: true }, // Let Stripe manage payment methods
-                metadata: {
-                    userId,
-                    loyaltyPointsUsed: pointsToRedeem,
-                },
-            });
-            console.log(`createStripePaymentIntent: Payment Intent created successfully with ID: ${paymentIntent.id}`);
-
-            // Rebuild a full cart object with validated data
+            let subtotal = 0;
             const validatedCart = [];
+            let discountPercentage = 0;
+
+            // 1. Securely calculate subtotal from DB and build a validated cart
             for (const item of cart) {
                 const productDoc = await db.collection("products").doc(item.id).get();
                 if (productDoc.exists) {
                     const productData = productDoc.data();
+                    subtotal += productData.price * item.quantity;
                     validatedCart.push({
                         id: item.id,
                         quantity: item.quantity,
                         name: productData.name,
-                        price: productData.price, // Use the validated server price
-                        image: (productData.images && productData.images[0]) || productData.image || ''
+                        price: productData.price, // Use server-side price
+                        originalPrice: productData.price,
+                        image: (productData.images && productData.images[0]) || productData.image || '',
+                        discountApplied: false
                     });
                 }
             }
 
-            // Store the FULL, validated cart details in the temporary session document
+            let total = subtotal;
+
+            // 2. Validate and apply coupon discount on the server
+            if (discount && discount.code) {
+                const code = discount.code.toUpperCase();
+                if (code === 'BEMVINDO10') {
+                    const ordersQuery = await db.collection('orders').where('userId', '==', userId).limit(1).get();
+                    if (ordersQuery.empty) {
+                        discountPercentage = 0.10; // 10%
+                    }
+                } else if (code === 'DESCONTO10') {
+                    discountPercentage = 0.10;
+                } else if (code === 'PRAZER5') {
+                    discountPercentage = 0.05;
+                }
+            }
+
+            // Apply percentage discount to the total
+            if (discountPercentage > 0) {
+                total *= (1 - discountPercentage);
+            }
+
+            // 3. Validate and apply loyalty points discount
+            const pointsToRedeem = loyaltyPoints || 0;
+            if (pointsToRedeem > 0) {
+                const availablePoints = userProfile.loyaltyPoints || 0;
+                if (pointsToRedeem > availablePoints) {
+                    return res.status(400).send({ error: "Insufficient loyalty points." });
+                }
+                const loyaltyDiscountAmount = pointsToRedeem / 100; // 100 points = 1€
+                total -= loyaltyDiscountAmount;
+            }
+
+            total = Math.max(total, 0);
+            const amountInCents = Math.round(total * 100);
+
+            if (amountInCents > 0 && amountInCents < 50) {
+                return res.status(400).send({ error: "Amount is too small for a charge." });
+            }
+
+            // 4. Create the final cart with correctly discounted prices for each item
+            const finalCart = validatedCart.map(item => ({
+                ...item,
+                price: parseFloat((item.price * (1 - discountPercentage)).toFixed(2)),
+                discountApplied: discountPercentage > 0
+            }));
+
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amountInCents,
+                currency: "eur",
+                automatic_payment_methods: { enabled: true },
+                metadata: { userId, loyaltyPointsUsed: pointsToRedeem },
+            });
+
+            // 5. Store the final, validated cart in the session
             const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
             await sessionRef.set({
                 userId,
-                cart: validatedCart,
+                cart: finalCart, // This now contains all necessary info with correct prices
                 loyaltyPointsUsed: pointsToRedeem,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            console.log("createStripePaymentIntent: Temporary session document created in Firestore.");
 
-            return res.status(200).send({
-                clientSecret: paymentIntent.client_secret,
-            });
+            return res.status(200).send({ clientSecret: paymentIntent.client_secret });
         } catch (error) {
-            // DETAILED ERROR LOGGING
-            console.error("--- DETAILED STRIPE PAYMENT INTENT ERROR ---");
-            console.error("Timestamp:", new Date().toISOString());
-            console.error("User ID:", userId);
-            console.error("Error Code:", error.code);
-            console.error("Error Type:", error.type);
-            console.error("Error Message:", error.message);
-            console.error("Full Error Object:", JSON.stringify(error, null, 2));
-            console.error("--- END OF DETAILED ERROR ---");
-            return res.status(500).send({ error: "Failed to create Stripe Payment Intent. Check function logs for details." });
+            console.error("--- DETAILED STRIPE PAYMENT INTENT ERROR ---", error);
+            return res.status(500).send({ error: "Failed to create Stripe Payment Intent." });
         }
     });
 });
