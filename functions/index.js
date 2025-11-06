@@ -1,5 +1,4 @@
-const {onRequest} = require("firebase-functions/v2/https");
-const {onCall} = require("firebase-functions/v2/https");
+const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const axios = require("axios");
 const cheerio = require("cheerio");
@@ -36,14 +35,13 @@ const cors = require("cors")({
 });
 
 // It is best practice to store sensitive keys in environment variables.
+// The STRIPE_SECRET_KEY is defined in the function secrets, and accessed via process.env
 let stripe;
-const stripeConfig = functions.config().stripe;
-
-if (stripeConfig && stripeConfig.secret) {
-    stripe = require("stripe")(stripeConfig.secret);
+if (process.env.STRIPE_SECRET_KEY) {
+    stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 } else {
-    console.error("CRITICAL: Stripe secret key is not configured in Firebase config (stripe.secret). Payment functions will fail.");
-    // We don't initialize stripe here, so it fails loudly and clearly.
+    // This will be logged during function initialization if the secret is not set.
+    console.error("CRITICAL: STRIPE_SECRET_KEY is not configured as a secret. Payment functions will fail.");
 }
 
 /**
@@ -52,10 +50,10 @@ if (stripeConfig && stripeConfig.secret) {
  * It now securely calculates the total on the server-side and uses a temporary
  * Firestore document to pass cart data, avoiding metadata limits.
  */
-exports.createStripePaymentIntent = onRequest({region: 'europe-west3'}, (req, res) => {
+exports.createStripePaymentIntent = onRequest({region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY"]}, (req, res) => {
     cors(req, res, async () => {
         if (!stripe) {
-            console.error("Stripe not configured.");
+            console.error("Stripe not configured. Ensure STRIPE_SECRET_KEY is set.");
             return res.status(500).send({ error: "Internal payment server error." });
         }
 
@@ -299,21 +297,14 @@ const fulfillOrder = async (paymentIntent) => {
 /**
  * Handles webhook events from Stripe to update order status.
  */
-exports.stripeWebhook = onRequest({region: 'europe-west3'}, async (req, res) => {
+exports.stripeWebhook = onRequest({region: 'europe-west3', secrets: ["STRIPE_WEBHOOK_SECRET"]}, async (req, res) => {
     let event;
 
     // Securely verify the webhook signature.
-    let whSec;
-    try {
-        whSec = functions.config().stripe.webhook_secret;
-    } catch (error) {
-        console.error("Could not access stripe.webhook_secret. Make sure it is set in Firebase config.");
-        return res.status(500).send("Webhook secret is not configured on the server.");
-    }
-
+    const whSec = process.env.STRIPE_WEBHOOK_SECRET;
     if (!whSec) {
-        console.error("Stripe webhook secret is not configured. Set it with `firebase functions:config:set stripe.webhook_secret=...`");
-        return res.status(500).send("Webhook secret not configured.");
+        console.error("CRITICAL: STRIPE_WEBHOOK_SECRET is not configured as a secret.");
+        return res.status(500).send("Webhook secret not configured on the server.");
     }
 
     try {
@@ -346,17 +337,15 @@ exports.stripeWebhook = onRequest({region: 'europe-west3'}, async (req, res) => 
  * Scrapes product data from an AliExpress URL.
  * This is a callable function that requires the user to be authenticated.
  */
-exports.scrapeAliExpress = onCall({region: 'europe-west3'}, async (data, context) => {
+exports.scrapeAliExpress = onCall({region: 'europe-west3'}, async (request) => {
     // Check for authentication
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
     }
 
-    const {
-        url
-    } = data;
+    const { url } = request.data;
     if (!url || !url.startsWith('https://www.aliexpress.com/')) {
-        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a valid AliExpress URL.');
+        throw new HttpsError('invalid-argument', 'The function must be called with a valid AliExpress URL.');
     }
 
     try {
@@ -428,7 +417,7 @@ exports.scrapeAliExpress = onCall({region: 'europe-west3'}, async (data, context
         };
     } catch (error) {
         console.error('Error scraping AliExpress:', error);
-        throw new functions.https.HttpsError('internal', 'Failed to scrape the AliExpress page.');
+        throw new HttpsError('internal', 'Failed to scrape the AliExpress page.');
     }
 });
 
@@ -445,16 +434,16 @@ exports.ssr = onRequest({region: 'europe-west3'}, async (req, res) => {
  * This is an administrative function and should be protected.
  * Only callable by an already authenticated admin.
  */
-exports.setAdminClaim = onCall({region: 'europe-west3'}, async (data, context) => {
+exports.setAdminClaim = onCall({region: 'europe-west3'}, async (request) => {
     // Check if the caller is an admin.
     // Note: The first admin must be set manually via Firebase console or gcloud CLI.
-    if (context.auth.token.isAdmin !== true) {
-        throw new functions.https.HttpsError('permission-denied', 'Only admins can set other users as admins.');
+    if (request.auth.token.isAdmin !== true) {
+        throw new HttpsError('permission-denied', 'Only admins can set other users as admins.');
     }
 
-    const { email } = data;
+    const { email } = request.data;
     if (!email) {
-        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with an "email" argument.');
+        throw new HttpsError('invalid-argument', 'The function must be called with an "email" argument.');
     }
 
     try {
@@ -468,6 +457,6 @@ exports.setAdminClaim = onCall({region: 'europe-west3'}, async (data, context) =
         return { message: `Success! ${email} has been made an admin.` };
     } catch (error) {
         console.error("Error setting admin claim:", error);
-        throw new functions.https.HttpsError('internal', 'An internal error occurred while trying to set the admin claim.');
+        throw new HttpsError('internal', 'An internal error occurred while trying to set the admin claim.');
     }
 });
