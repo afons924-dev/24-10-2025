@@ -80,52 +80,39 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
             const userProfile = userDoc.data();
             console.log("createStripePaymentIntent: User document fetched successfully.");
 
-            // Securely calculate the total on the server using the client's cart for reference.
-            let serverTotal = 0;
-            const validatedCartItems = [];
-            console.log("createStripePaymentIntent: Securely calculating total and validating cart...");
-
-            for (const clientItem of cart) {
-                const productRef = db.collection("products").doc(clientItem.id);
+            // Calculate total amount on the server by fetching prices from Firestore
+            let amount = 0;
+            console.log("createStripePaymentIntent: Calculating total amount from cart items...");
+            for (const item of cart) {
+                const productRef = db.collection("products").doc(item.id);
                 const productDoc = await productRef.get();
                 if (productDoc.exists) {
-                    const productData = productDoc.data();
-                    // Use the server-side price, not the client-side one.
-                    const itemPrice = productData.price;
-                    serverTotal += itemPrice * clientItem.quantity;
-
-                    // Reconstruct the item with validated data to be stored in the session.
-                    validatedCartItems.push({
-                        id: clientItem.id,
-                        name: productData.name,
-                        price: itemPrice, // The validated price
-                        originalPrice: itemPrice,
-                        image: (productData.images && productData.images[0]) || productData.image || '',
-                        quantity: clientItem.quantity,
-                        discountApplied: false // Discounts will be calculated next
-                    });
+                    const price = productDoc.data().price;
+                    amount += price * item.quantity;
+                    console.log(`createStripePaymentIntent: Item ${item.id} - Price: ${price}, Quantity: ${item.quantity}. Subtotal: ${amount}`);
                 } else {
-                     console.warn(`createStripePaymentIntent: Product with ID ${clientItem.id} not found. Skipping.`);
+                    console.warn(`createStripePaymentIntent: Product with ID ${item.id} not found during amount calculation.`);
                 }
             }
-             console.log(`createStripePaymentIntent: Server-calculated gross total: €${serverTotal.toFixed(2)}`);
+            console.log(`createStripePaymentIntent: Gross amount calculated: €${amount.toFixed(2)}`);
 
-            // Apply loyalty points discount securely on the server
+            // Apply loyalty points discount on the server
             const availablePoints = userProfile.loyaltyPoints || 0;
             const pointsToRedeem = loyaltyPoints || 0;
 
             if (pointsToRedeem > 0) {
+                console.log(`createStripePaymentIntent: Applying ${pointsToRedeem} loyalty points (Available: ${availablePoints}).`);
                 if (pointsToRedeem > availablePoints) {
                     console.error("createStripePaymentIntent: User tried to use more loyalty points than available.");
                     return res.status(400).send({ error: "Insufficient loyalty points." });
                 }
-                const loyaltyDiscount = pointsToRedeem / 100; // 100 points = 1€
-                serverTotal -= loyaltyDiscount;
-                 console.log(`createStripePaymentIntent: Applied loyalty discount of €${loyaltyDiscount.toFixed(2)}. New total: €${serverTotal.toFixed(2)}`);
+                const discountAmount = pointsToRedeem / 100; // 100 points = 1€
+                amount -= discountAmount;
+                console.log(`createStripePaymentIntent: Discount of €${discountAmount.toFixed(2)} applied. New total: €${amount.toFixed(2)}`);
             }
 
-            const finalTotal = Math.max(serverTotal, 0);
-            const amountInCents = Math.round(finalTotal * 100);
+            amount = Math.max(amount, 0); // Ensure amount is not negative
+            const amountInCents = Math.round(amount * 100);
             console.log(`createStripePaymentIntent: Final amount in cents: ${amountInCents}`);
 
             // Ensure the amount is above Stripe's minimum if it's not free
@@ -147,11 +134,27 @@ exports.createStripePaymentIntent = functions.region('europe-west3').https.onReq
             });
             console.log(`createStripePaymentIntent: Payment Intent created successfully with ID: ${paymentIntent.id}`);
 
-            // Store the validated cart details and points used in a temporary Firestore document
+            // Rebuild a full cart object with validated data
+            const validatedCart = [];
+            for (const item of cart) {
+                const productDoc = await db.collection("products").doc(item.id).get();
+                if (productDoc.exists) {
+                    const productData = productDoc.data();
+                    validatedCart.push({
+                        id: item.id,
+                        quantity: item.quantity,
+                        name: productData.name,
+                        price: productData.price, // Use the validated server price
+                        image: (productData.images && productData.images[0]) || productData.image || ''
+                    });
+                }
+            }
+
+            // Store the FULL, validated cart details in the temporary session document
             const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
             await sessionRef.set({
                 userId,
-                cart: validatedCartItems,
+                cart: validatedCart,
                 loyaltyPointsUsed: pointsToRedeem,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -209,7 +212,6 @@ const fulfillOrder = async (paymentIntent) => {
 
             const productRefs = cart.map(item => db.collection("products").doc(item.id));
             const productDocs = await transaction.getAll(...productRefs);
-            const fullCartItems = [];
             const productUpdates = [];
 
             for (let i = 0; i < cart.length; i++) {
@@ -226,19 +228,14 @@ const fulfillOrder = async (paymentIntent) => {
                 const newStock = productData.stock - cartItem.quantity;
                 const newSoldCount = (productData.sold || 0) + cartItem.quantity;
                 productUpdates.push({ ref: productDoc.ref, data: { stock: newStock, sold: newSoldCount } });
-
-                fullCartItems.push({
-                    ...cartItem,
-                    name: productData.name,
-                    price: productData.price,
-                    image: (productData.images && productData.images[0]) || productData.image || ''
-                });
             }
 
             const total = paymentIntent.amount / 100;
             const pointsToAward = Math.floor(total);
             const orderData = {
-                userId: userId, items: fullCartItems, total: total,
+                userId: userId,
+                items: cart, // The cart from the session is now complete
+                total: total,
                 paymentIntentId: paymentIntent.id,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
