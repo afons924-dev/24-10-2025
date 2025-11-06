@@ -2581,7 +2581,25 @@ const app = {
         if (!suggestionsContainer) return;
 
         if (products.length === 0) {
-            suggestionsContainer.innerHTML = `<p class="p-4 text-center text-gray-400">Nenhum produto encontrado.</p>`;
+            const categories = [...new Set(this.products.map(p => p.category).filter(Boolean))];
+            let suggestionsHtml = '<p class="p-4 text-center text-gray-400">Nenhum produto encontrado.</p>';
+
+            if (categories.length > 0) {
+                suggestionsHtml += `
+                    <div class="p-4 border-t border-gray-700">
+                        <h4 class="font-semibold text-white mb-3 text-center">Experimente pesquisar por categoria:</h4>
+                        <div class="flex flex-wrap justify-center gap-2">
+                            ${categories.map(cat => `
+                                <a href="#/products?category=${encodeURIComponent(cat)}" class="search-suggestion-item bg-secondary hover:bg-accent text-white text-sm font-semibold px-3 py-1 rounded-full transition-colors">
+                                    ${cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' ')}
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            suggestionsContainer.innerHTML = suggestionsHtml;
             suggestionsContainer.classList.remove('hidden');
             return;
         }
@@ -3916,7 +3934,7 @@ const app = {
                     amount: amountInCents,
                     currency: 'eur',
                     userId: this.user.uid,
-                    cart: this.cart.map(item => ({ id: item.id, quantity: item.quantity })),
+                    cart: this.cart,
                     loyaltyPoints: this.loyalty.pointsUsed
                 }),
             });
