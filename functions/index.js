@@ -50,119 +50,125 @@ if (process.env.STRIPE_SECRET_KEY) {
  * It now securely calculates the total on the server-side and uses a temporary
  * Firestore document to pass cart data, avoiding metadata limits.
  */
-exports.createStripePaymentIntent = onRequest({region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY"]}, (req, res) => {
-    cors(req, res, async () => {
-        if (!stripe) {
-            console.error("Stripe not configured. Ensure STRIPE_SECRET_KEY is set.");
-            return res.status(500).send({ error: "Internal payment server error." });
+exports.createStripePaymentIntent = onCall({region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
+    if (!stripe) {
+        console.error("Stripe not configured. Ensure STRIPE_SECRET_KEY is set.");
+        throw new HttpsError('internal', 'Internal payment server error.');
+    }
+
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+
+    const { cart, loyaltyPoints, discount } = request.data;
+    const userId = request.auth.uid;
+
+    if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
+        throw new HttpsError('invalid-argument', 'Missing user ID or cart.');
+    }
+
+    try {
+        const userRef = db.collection("users").doc(userId);
+        const userDoc = await userRef.get();
+        if (!userDoc.exists) {
+            throw new HttpsError('not-found', 'User not found.');
+        }
+        const userProfile = userDoc.data();
+
+        let subtotal = 0;
+        const validatedCart = [];
+        let discountPercentage = 0;
+
+        // 1. Securely calculate subtotal from DB and build a validated cart
+        for (const item of cart) {
+            const productDoc = await db.collection("products").doc(item.id).get();
+            if (productDoc.exists) {
+                const productData = productDoc.data();
+                subtotal += productData.price * item.quantity;
+                validatedCart.push({
+                    id: item.id,
+                    quantity: item.quantity,
+                    name: productData.name,
+                    price: productData.price, // Use server-side price
+                    originalPrice: productData.price,
+                    image: (productData.images && productData.images[0]) || productData.image || '',
+                    discountApplied: false
+                });
+            }
         }
 
-        const { userId, cart, loyaltyPoints, discount } = req.body;
+        let total = subtotal;
 
-        if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
-            return res.status(400).send({ error: "Missing user ID or cart." });
+        // 2. Validate and apply coupon discount on the server
+        if (discount && discount.code) {
+            const code = discount.code.toUpperCase();
+            if (code === 'BEMVINDO10') {
+                const ordersQuery = await db.collection('orders').where('userId', '==', userId).limit(1).get();
+                if (ordersQuery.empty) {
+                    discountPercentage = 0.10; // 10%
+                }
+            } else if (code === 'DESCONTO10') {
+                discountPercentage = 0.10;
+            } else if (code === 'PRAZER5') {
+                discountPercentage = 0.05;
+            }
         }
 
-        try {
-            const userRef = db.collection("users").doc(userId);
-            const userDoc = await userRef.get();
-            if (!userDoc.exists) {
-                return res.status(404).send({ error: "User not found." });
-            }
-            const userProfile = userDoc.data();
-
-            let subtotal = 0;
-            const validatedCart = [];
-            let discountPercentage = 0;
-
-            // 1. Securely calculate subtotal from DB and build a validated cart
-            for (const item of cart) {
-                const productDoc = await db.collection("products").doc(item.id).get();
-                if (productDoc.exists) {
-                    const productData = productDoc.data();
-                    subtotal += productData.price * item.quantity;
-                    validatedCart.push({
-                        id: item.id,
-                        quantity: item.quantity,
-                        name: productData.name,
-                        price: productData.price, // Use server-side price
-                        originalPrice: productData.price,
-                        image: (productData.images && productData.images[0]) || productData.image || '',
-                        discountApplied: false
-                    });
-                }
-            }
-
-            let total = subtotal;
-
-            // 2. Validate and apply coupon discount on the server
-            if (discount && discount.code) {
-                const code = discount.code.toUpperCase();
-                if (code === 'BEMVINDO10') {
-                    const ordersQuery = await db.collection('orders').where('userId', '==', userId).limit(1).get();
-                    if (ordersQuery.empty) {
-                        discountPercentage = 0.10; // 10%
-                    }
-                } else if (code === 'DESCONTO10') {
-                    discountPercentage = 0.10;
-                } else if (code === 'PRAZER5') {
-                    discountPercentage = 0.05;
-                }
-            }
-
-            // Apply percentage discount to the total
-            if (discountPercentage > 0) {
-                total *= (1 - discountPercentage);
-            }
-
-            // 3. Validate and apply loyalty points discount
-            const pointsToRedeem = loyaltyPoints || 0;
-            if (pointsToRedeem > 0) {
-                const availablePoints = userProfile.loyaltyPoints || 0;
-                if (pointsToRedeem > availablePoints) {
-                    return res.status(400).send({ error: "Insufficient loyalty points." });
-                }
-                const loyaltyDiscountAmount = pointsToRedeem / 100; // 100 points = 1€
-                total -= loyaltyDiscountAmount;
-            }
-
-            total = Math.max(total, 0);
-            const amountInCents = Math.round(total * 100);
-
-            if (amountInCents > 0 && amountInCents < 50) {
-                return res.status(400).send({ error: "Amount is too small for a charge." });
-            }
-
-            // 4. Create the final cart with correctly discounted prices for each item
-            const finalCart = validatedCart.map(item => ({
-                ...item,
-                price: parseFloat((item.price * (1 - discountPercentage)).toFixed(2)),
-                discountApplied: discountPercentage > 0
-            }));
-
-
-            const paymentIntent = await stripe.paymentIntents.create({
-                amount: amountInCents,
-                currency: "eur",
-                automatic_payment_methods: { enabled: true },
-                metadata: { userId, loyaltyPointsUsed: pointsToRedeem },
-            });
-
-            // 5. Store the final, validated cart in the session
-            const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
-            await sessionRef.set({
-                userId,
-                cart: finalCart, // This now contains all necessary info with correct prices
-                loyaltyPointsUsed: pointsToRedeem,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            return res.status(200).send({ clientSecret: paymentIntent.client_secret });
-        } catch (error) {
-            console.error("--- DETAILED STRIPE PAYMENT INTENT ERROR ---", error);
-            return res.status(500).send({ error: "Failed to create Stripe Payment Intent." });
+        // Apply percentage discount to the total
+        if (discountPercentage > 0) {
+            total *= (1 - discountPercentage);
         }
-    });
+
+        // 3. Validate and apply loyalty points discount
+        const pointsToRedeem = loyaltyPoints || 0;
+        if (pointsToRedeem > 0) {
+            const availablePoints = userProfile.loyaltyPoints || 0;
+            if (pointsToRedeem > availablePoints) {
+                throw new HttpsError('invalid-argument', 'Insufficient loyalty points.');
+            }
+            const loyaltyDiscountAmount = pointsToRedeem / 100; // 100 points = 1€
+            total -= loyaltyDiscountAmount;
+        }
+
+        total = Math.max(total, 0);
+        const amountInCents = Math.round(total * 100);
+
+        if (amountInCents > 0 && amountInCents < 50) {
+            throw new HttpsError('invalid-argument', 'Amount is too small for a charge.');
+        }
+
+        // 4. Create the final cart with correctly discounted prices for each item
+        const finalCart = validatedCart.map(item => ({
+            ...item,
+            price: parseFloat((item.price * (1 - discountPercentage)).toFixed(2)),
+            discountApplied: discountPercentage > 0
+        }));
+
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: amountInCents,
+            currency: "eur",
+            automatic_payment_methods: { enabled: true },
+            metadata: { userId, loyaltyPointsUsed: pointsToRedeem },
+        });
+
+        // 5. Store the final, validated cart in the session
+        const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
+        await sessionRef.set({
+            userId,
+            cart: finalCart, // This now contains all necessary info with correct prices
+            loyaltyPointsUsed: pointsToRedeem,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        return { clientSecret: paymentIntent.client_secret };
+    } catch (error) {
+        console.error("--- DETAILED STRIPE PAYMENT INTENT ERROR ---", error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        throw new HttpsError('internal', 'Failed to create Stripe Payment Intent.');
+    }
 });
 
 /**
