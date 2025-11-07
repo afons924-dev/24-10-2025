@@ -321,22 +321,32 @@ exports.stripeWebhook = onRequest({region: 'europe-west3', secrets: ["STRIPE_WEB
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Handle the event
     switch (event.type) {
         case 'payment_intent.succeeded':
             const paymentIntent = event.data.object;
             console.log(`PaymentIntent for ${paymentIntent.amount} was successful!`);
-            await fulfillOrder(paymentIntent);
+            try {
+                await fulfillOrder(paymentIntent);
+                // Send a 200 response to acknowledge receipt of the event
+                res.status(200).json({received: true, status: 'success'});
+            } catch (error) {
+                console.error('[stripeWebhook] Error during order fulfillment:', error);
+                // Still send a 200 to Stripe to prevent retries, as the payment was successful.
+                // The internal error handling in fulfillOrder is responsible for notifications.
+                res.status(200).json({received: true, status: 'error_in_fulfillment'});
+            }
             break;
         case 'payment_intent.payment_failed':
             const paymentIntentFailed = event.data.object;
             console.log(`Payment failed: ${paymentIntentFailed.last_payment_error?.message}`);
             // TODO: Notify the user that the payment failed.
+            res.status(200).json({received: true});
             break;
         default:
             console.log(`Unhandled event type ${event.type}`);
+            res.status(200).json({received: true});
     }
-
-    res.status(200).send();
 });
 
 /**
