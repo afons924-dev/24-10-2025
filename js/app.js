@@ -3916,35 +3916,23 @@ const app = {
     async initStripePayment() {
         this.showLoading();
         try {
-            // Calculate the final total in the smallest currency unit (cents).
-            const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const couponDiscountAmount = subtotal * (this.discount.percentage / 100);
-            const loyaltyDiscountAmount = this.loyalty.discountAmount || 0;
-            const total = subtotal - couponDiscountAmount - loyaltyDiscountAmount;
-            const amountInCents = Math.round(Math.max(0, total) * 100);
-
             // Call the cloud function to create a payment intent.
-            // Note: The URL might need to be updated based on your Firebase project region.
-            const response = await fetch('https://europe-west3-desire-loja-final.cloudfunctions.net/createStripePaymentIntent', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    amount: amountInCents,
-                    currency: 'eur',
-                    userId: this.user.uid,
-                    cart: this.cart.map(item => ({ id: item.id, quantity: item.quantity })),
-                    loyaltyPoints: this.loyalty.pointsUsed
-                }),
-            });
+            const createStripePaymentIntent = httpsCallable(this.functions, 'createStripePaymentIntent');
+            const payload = {
+                cart: this.cart, // Send the full cart for server-side validation
+                loyaltyPoints: this.loyalty.pointsUsed,
+                discount: this.discount, // Send discount info for server-side validation
+                userId: this.user.uid
+            };
+            console.log("DEBUG: Calling 'createStripePaymentIntent' with payload:", JSON.stringify(payload, null, 2));
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to create payment intent.');
+            const result = await createStripePaymentIntent(payload);
+            const data = result.data;
+
+            if (data.error) {
+                 throw new Error(data.error);
             }
 
-            const data = await response.json();
             this.paymentIntentClientSecret = data.clientSecret;
 
             // Define the appearance of the Stripe Element.
@@ -3967,8 +3955,9 @@ const app = {
             paymentElement.mount("#payment-element");
 
         } catch (error) {
-            console.error("Stripe initialization failed:", error);
-            this.showToast('Falha ao iniciar o processo de pagamento.', 'error');
+            console.error("--- DEBUG: Stripe Payment Initialization FAILED ---");
+            console.error("Error object:", error);
+            this.showToast(`Erro ao iniciar pagamento: ${error.message}`, 'error');
         } finally {
             this.hideLoading();
         }
@@ -3999,8 +3988,11 @@ const app = {
         // This point will only be reached if there is an immediate error.
         // If the payment requires a redirect, the user will be sent away from the page.
         if (error) {
+            console.error("--- DEBUG: Stripe confirmPayment FAILED ---");
+            console.error("Error Type:", error.type);
+            console.error("Error Message:", error.message);
             const messageContainer = document.querySelector("#payment-message");
-            messageContainer.textContent = error.message;
+            messageContainer.textContent = `Erro no pagamento: ${error.message}`;
             messageContainer.classList.remove('hidden');
             this.hideLoading();
         } else {
@@ -4024,7 +4016,15 @@ const app = {
         }
 
         try {
-            const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
+            console.log("--- DEBUG: Handling post-payment redirect. ---");
+            const { paymentIntent, error } = await this.stripe.retrievePaymentIntent(clientSecret);
+
+            if (error) {
+                console.error("--- DEBUG: Error retrieving Payment Intent ---", error);
+                throw new Error(error.message);
+            }
+
+            console.log(`--- DEBUG: Retrieved Payment Intent. Status: ${paymentIntent.status} ---`);
 
             switch (paymentIntent.status) {
                 case "succeeded":
@@ -4040,6 +4040,12 @@ const app = {
                     // Set a flag to show a success message on the account page.
                     sessionStorage.setItem('paymentSuccess', 'true');
 
+                    // IMPORTANT: Force a reload of user profile and orders before redirecting
+                    // to ensure the new order is visible immediately.
+                    console.log("--- DEBUG: Payment succeeded. Reloading user profile and orders before redirect. ---");
+                    await this.loadUserProfile();
+                    await this.loadOrders();
+
                     // Redirect the user to their orders page.
                     this.navigateTo('/account?tab=orders');
                     break;
@@ -4052,13 +4058,14 @@ const app = {
                     this.navigateTo('/checkout'); // Send back to checkout
                     break;
                 default:
+                    console.warn(`--- DEBUG: Unhandled payment intent status: ${paymentIntent.status} ---`);
                     this.showToast("Algo correu mal com o pagamento. Por favor, tente novamente.", "error");
                     this.navigateTo('/checkout'); // Send back to checkout
                     break;
             }
         } catch (error) {
-            console.error("Error retrieving payment intent:", error);
-            this.showToast("Não foi possível verificar o estado do seu pagamento.", "error");
+            console.error("--- DEBUG: Catastrophic failure in handlePostPayment ---", error);
+            this.showToast(`Não foi possível verificar o seu pagamento: ${error.message}`, "error");
         } finally {
             this.hideLoading();
         }
