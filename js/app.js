@@ -110,7 +110,7 @@ const app = {
         this.auth = auth;
         this.db = db;
         this.storage = storage;
-        this.functions = getFunctions();
+        this.functions = getFunctions(auth.app, 'europe-west3');
 
         // Basic setup that doesn't depend on auth or page content
         this.initStripe();
