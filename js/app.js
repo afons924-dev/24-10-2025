@@ -1042,6 +1042,7 @@ const app = {
                     </div>
                 </div>`;
             this.initProductGallery();
+            this.initProductGallery();
             this.loadProductReviews(productId);
             this.updateWishlistIcons(product.id, this.isProductInWishlist(product.id));
             this.renderBundleSection(product, container);
