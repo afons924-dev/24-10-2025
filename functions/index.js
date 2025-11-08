@@ -318,7 +318,7 @@ const fulfillOrder = async (paymentIntent) => {
  * Handles webhook events from Stripe to update order status.
  * v3 - Force update.
  */
-exports.stripeWebhook = onRequest({region: 'europe-west3', secrets: ["STRIPE_WEBHOOK_SECRET"]}, async (req, res) => {
+exports.stripeWebhook = onRequest({region: 'europe-west3', secrets: ["STRIPE_WEBHOOK_SECRET", "STRIPE_SECRET_KEY"]}, async (req, res) => {
     let event;
 
     // Securely verify the webhook signature.
