@@ -176,20 +176,23 @@ exports.createStripePaymentIntent = onCall({region: 'europe-west3', secrets: ["S
  * This function is called by the Stripe webhook when a payment is successful.
  */
 const fulfillOrder = async (paymentIntent) => {
+    console.log(`[fulfillOrder] - Starting fulfillment for Payment Intent: ${paymentIntent.id}`);
     const sessionRef = db.collection('stripe_sessions').doc(paymentIntent.id);
     const sessionDoc = await sessionRef.get();
 
     if (!sessionDoc.exists) {
-        console.error(`Could not find session for payment intent: ${paymentIntent.id}`);
+        console.error(`[fulfillOrder] - FATAL: Could not find session for payment intent: ${paymentIntent.id}`);
         return;
     }
+    console.log(`[fulfillOrder] - Session document found for ${paymentIntent.id}`);
 
     const { userId, cart } = sessionDoc.data();
 
     if (!userId || !cart || !Array.isArray(cart) || cart.length === 0) {
-        console.error("Invalid session data from payment intent:", paymentIntent.id);
+        console.error(`[fulfillOrder] - FATAL: Invalid session data for payment intent: ${paymentIntent.id}. Data:`, sessionDoc.data());
         return;
     }
+    console.log(`[fulfillOrder] - Session data is valid. UserID: ${userId}, Cart items: ${cart.length}`);
 
     const orderRef = db.collection("orders").doc();
     const userRef = db.collection("users").doc(userId);
@@ -197,22 +200,27 @@ const fulfillOrder = async (paymentIntent) => {
     const ADMIN_EMAIL = "geral@darkdesire.pt"; // Centralized admin email
 
     try {
+        console.log(`[fulfillOrder] - Starting Firestore transaction for order ${orderRef.id}`);
         // Run the core logic within a transaction
         await db.runTransaction(async (transaction) => {
+            console.log(`[fulfillOrder] - Transaction started. Fetching user document: ${userId}`);
             const userDoc = await transaction.get(userRef);
-            if (!userDoc.exists) throw new Error(`User ${userId} not found.`);
+            if (!userDoc.exists) throw new Error(`User ${userId} not found within transaction.`);
             const userProfile = userDoc.data();
+            console.log(`[fulfillOrder] - User document fetched. User: ${userProfile.email}`);
 
             const productRefs = cart.map(item => db.collection("products").doc(item.id));
             const productDocs = await transaction.getAll(...productRefs);
             const productUpdates = [];
 
+            console.log(`[fulfillOrder] - Fetching ${cart.length} product documents for stock validation.`);
             for (let i = 0; i < cart.length; i++) {
                 const productDoc = productDocs[i];
                 if (!productDoc.exists) throw new Error(`Product with ID ${cart[i].id} not found.`);
 
                 const productData = productDoc.data();
                 const cartItem = cart[i];
+                console.log(`[fulfillOrder] - Validating stock for product: ${productData.name}. Requested: ${cartItem.quantity}, Available: ${productData.stock}`);
 
                 if (productData.stock < cartItem.quantity) {
                     throw new Error(`Stock insufficient for ${productData.name} (ID: ${cartItem.id}). Requested: ${cartItem.quantity}, Available: ${productData.stock}`);
@@ -221,6 +229,7 @@ const fulfillOrder = async (paymentIntent) => {
                 const newStock = productData.stock - cartItem.quantity;
                 const newSoldCount = (productData.sold || 0) + cartItem.quantity;
                 productUpdates.push({ ref: productDoc.ref, data: { stock: newStock, sold: newSoldCount } });
+                console.log(`[fulfillOrder] - Stock for ${productData.name} is valid. Queuing update.`);
             }
 
             const total = paymentIntent.amount / 100;
@@ -234,17 +243,22 @@ const fulfillOrder = async (paymentIntent) => {
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 shippingAddress: userProfile.address, status: 'Em processamento'
             };
+            console.log('[fulfillOrder] - Setting new order document in transaction:', orderData);
             transaction.set(orderRef, orderData);
 
+            console.log(`[fulfillOrder] - Applying ${productUpdates.length} product stock updates in transaction.`);
             productUpdates.forEach(update => transaction.update(update.ref, update.data));
 
             const pointsUsed = parseInt(paymentIntent.metadata.loyaltyPointsUsed) || 0;
             const currentPoints = userProfile.loyaltyPoints || 0;
             const newPoints = currentPoints - pointsUsed + pointsToAward;
+            console.log(`[fulfillOrder] - Updating user points and clearing cart. Old points: ${currentPoints}, Points used: ${pointsUsed}, Points awarded: ${pointsToAward}, New points: ${newPoints}`);
             transaction.update(userRef, { loyaltyPoints: newPoints, cart: [] });
         });
+        console.log(`[fulfillOrder] - Firestore transaction committed successfully for order ${orderRef.id}`);
 
         // If transaction is successful, send confirmation emails
+        console.log(`[fulfillOrder] - Sending confirmation emails for order ${orderRef.id}`);
         const userDoc = await userRef.get(); // Re-fetch user doc to get latest data
         if (userDoc.exists) {
             const userProfile = userDoc.data();
