@@ -420,6 +420,10 @@ const app = {
                 e.preventDefault();
                 this.openNotifyMeModal(closest('.notify-me-btn').dataset.id);
             }
+             else if (closest('#bottom-nav-cart')) {
+                e.preventDefault();
+                this.openCartSidebar();
+            }
         });
 
         // Use a separate listener for clicks that should close the search, to avoid conflicts.
@@ -544,9 +548,33 @@ const app = {
     },
 
     updateActiveNav(path) {
+        // Top header and mobile slide-out menu
         document.querySelectorAll('#main-nav .nav-link, #mobile-menu .nav-link').forEach(link => {
             link.classList.toggle('active', link.dataset.route === path);
         });
+
+        // Bottom navigation bar
+        document.querySelectorAll('#bottom-nav .bottom-nav-link').forEach(link => {
+            // Special handling for account and its sub-pages (wishlist, etc.)
+            if (link.dataset.route === '/account' && path.startsWith('/account')) {
+                link.classList.add('active');
+            } else {
+                link.classList.toggle('active', link.dataset.route === path);
+            }
+        });
+
+        // Also, hide redundant icons in the header on mobile
+        const isMobile = window.innerWidth < 768;
+        const cartIconHeader = document.getElementById('cart-icon-container');
+        const authContainerHeader = document.getElementById('auth-container');
+
+        if (isMobile) {
+            if (cartIconHeader) cartIconHeader.style.display = 'none';
+            if (authContainerHeader) authContainerHeader.style.display = 'none';
+        } else {
+            if (cartIconHeader) cartIconHeader.style.display = 'flex';
+            if (authContainerHeader) authContainerHeader.style.display = 'flex';
+        }
     },
 
     async runPageSpecificScripts(path, params) {
@@ -2282,6 +2310,17 @@ const app = {
         mobileContainer.innerHTML = mobileAuthLinks;
         document.getElementById('mobile-login-btn')?.addEventListener('click', () => this.openAuthModal('login'));
         document.getElementById('mobile-logout-btn')?.addEventListener('click', () => logout(this.auth));
+
+        // Handle the bottom navigation account link
+        const bottomNavAccountLink = document.querySelector('#bottom-nav a[data-route="/account"]');
+        if (bottomNavAccountLink) {
+            if (!isLoggedIn) {
+                bottomNavAccountLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.openAuthModal('login');
+                }, { once: true }); // Use once to avoid multiple listeners
+            }
+        }
     },
 
     getTranslation(key, replacements = {}) {
@@ -2733,9 +2772,20 @@ const app = {
 
     updateCartCountDisplay() {
         const totalItems = this.cart.reduce((sum, item) => sum + item.quantity, 0);
+
+        // Update top header cart count
         const cartCount = document.getElementById('cart-count');
-        cartCount.textContent = totalItems;
-        cartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        if (cartCount) {
+            cartCount.textContent = totalItems;
+            cartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        }
+
+        // Update bottom nav cart count
+        const bottomCartCount = document.getElementById('bottom-cart-count');
+        if (bottomCartCount) {
+            bottomCartCount.textContent = totalItems;
+            bottomCartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        }
     },
 
     async saveCart() {
