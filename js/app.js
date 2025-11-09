@@ -3658,13 +3658,16 @@ const app = {
         const orderListEl = document.getElementById('order-history-list');
         if (!orderListEl) return;
         await this.loadOrders();
-        if (this.orders.length === 0) { orderListEl.innerHTML = `<p class="text-gray-400">Ainda não fez nenhuma encomenda.</p>`; return; }
+        if (this.orders.length === 0) {
+            orderListEl.innerHTML = `<p class="text-gray-400">Ainda não fez nenhuma encomenda.</p>`;
+            return;
+        }
         orderListEl.innerHTML = this.orders.map(order => {
             const dateObj = order.createdAt?.toDate() || order.timestamp?.toDate();
             const orderDate = dateObj ? new Date(dateObj).toLocaleDateString('pt-PT') : 'Data Indisponível';
             const status = order.status || 'Pendente';
             return `
-            <div class="accordion bg-secondary rounded-lg overflow-hidden">
+            <div class="bg-secondary rounded-lg overflow-hidden">
                 <button class="accordion-header w-full flex justify-between items-center p-4 text-left gap-4">
                     <span class="font-bold text-white">#${order.id.substring(0, 8).toUpperCase()}</span>
                     <span class="text-gray-400 hidden sm:inline">${orderDate}</span>
