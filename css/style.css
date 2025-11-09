@@ -275,3 +275,7 @@ input[type="search"]::-webkit-search-cancel-button {
     color: var(--color-text);
     background-color: var(--color-secondary);
 }
+
+.text-sm {
+  font-size: 0.875rem;
+}

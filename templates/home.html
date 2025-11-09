@@ -114,7 +114,7 @@
     <div class="container mx-auto px-4">
         <h2 class="text-4xl font-bold text-center mb-4" data-i18n="shopByCategoryTitle">Compre por Categoria</h2>
         <p class="text-center text-gray-400 mb-12 max-w-2xl mx-auto" data-i18n="shopByCategorySubtitle">Encontre exatamente o que procura com as nossas categorias populares.</p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+        <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
             <a href="#/products?category=vibradores" class="relative rounded-lg overflow-hidden h-48 group shadow-lg">
                 <img src="https://firebasestorage.googleapis.com/v0/b/desire-loja-final.appspot.com/o/categories%2Fvibes.jpg?alt=media&token=e48a3350-1451-4195-a58f-23c21c8b3554" alt="Vibradores" class="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-300">
                 <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
@@ -153,51 +153,47 @@
 </div>
 </div>
 </section>
-<section class="py-16 sm:py-24 bg-background">
-<div class="container mx-auto px-4">
-<h2 class="text-4xl font-bold text-center mb-12" data-i18n="testimonialsTitle">O que dizem os nossos clientes</h2>
-<div class="grid grid-cols-1 md:grid-cols-3 gap-8" id="testimonials-container"></div>
-</div>
+<section class="py-16 sm:py-24 bg-secondary">
+    <div class="container mx-auto px-4">
+        <h2 class="text-4xl font-bold text-center mb-12" data-i18n="testimonialsTitle">O que dizem os nossos clientes</h2>
+        <div class="relative">
+            <div class="flex overflow-x-auto snap-x snap-mandatory scroll-p-4 gap-8 -mx-4 px-4" id="testimonials-container" style="scroll-behavior: smooth;"></div>
+            <button aria-label="Avaliações anteriores" class="absolute top-1/2 -translate-y-1/2 -left-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="testimonials-prev" data-i18n-aria="prevTestimonials"><i class="fas fa-chevron-left"></i></button>
+            <button aria-label="Próximas avaliações" class="absolute top-1/2 -translate-y-1/2 -right-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="testimonials-next" data-i18n-aria="nextTestimonials"><i class="fas fa-chevron-right"></i></button>
+        </div>
+    </div>
 </section>
+
+<section id="recently-viewed-section" class="py-16 sm:py-24 bg-primary hidden">
+    <div class="container mx-auto px-4">
+        <h2 class="text-4xl font-bold text-center mb-4" data-i18n="recentlyViewedTitle">Vistos Recentemente</h2>
+        <p class="text-center text-gray-400 mb-12 max-w-2xl mx-auto" data-i18n="recentlyViewedSubtitle">Continue de onde parou.</p>
+        <div class="relative">
+            <div class="flex overflow-x-auto snap-x snap-mandatory scroll-p-4 gap-8 -mx-4 px-4" id="recently-viewed-carousel"></div>
+            <button aria-label="Produtos vistos anteriormente" class="absolute top-1/2 -translate-y-1/2 -left-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="recently-viewed-prev" data-i18n-aria="prevViewedProducts"><i class="fas fa-chevron-left"></i></button>
+            <button aria-label="Próximos produtos vistos" class="absolute top-1/2 -translate-y-1/2 -right-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="recently-viewed-next" data-i18n-aria="nextViewedProducts"><i class="fas fa-chevron-right"></i></button>
+        </div>
+    </div>
+</section>
+
 <!-- Sobre Nós Section -->
 <section class="about-us py-16 sm:py-24 bg-primary">
     <div class="container mx-auto px-4">
         <div class="section-header text-center mb-12">
             <h2 data-i18n="aboutUsTitle" class="text-4xl font-bold">Sobre Nós</h2>
-            <p data-i18n="aboutUsSubtitle" class="text-gray-400 mt-2">Conheça nossa missão e valores</p>
+            <p data-i18n="aboutUsSubtitle" class="text-gray-400 mt-2">Elegância, Respeito e Confiança no Mundo do Prazer.</p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
             <!-- Left Column: Text Content -->
-            <div class="text-gray-300 space-y-8">
-                <div>
-                    <h3 class="text-2xl font-bold mb-3" data-i18n="ourMissionTitle">Nossa Missão</h3>
-                    <p data-i18n="ourMissionText">A Dark Desires é especializada em produtos premium para adultos, oferecendo uma experiência discreta, segura e de alta qualidade. Acreditamos que todos merecem acesso a produtos que promovam bem-estar e intimidade de forma responsável.</p>
+            <div class="text-gray-300 space-y-6 text-left">
+                <p>A Desire nasceu de uma ideia simples: criar um espaço onde a exploração do prazer e do bem-estar íntimo fosse tratada com a elegância, o respeito e a confiança que merece. Acreditamos que o prazer é uma parte fundamental de uma vida feliz e saudável, e a nossa missão é derrubar tabus, oferecendo uma experiência de compra sofisticada, segura e informativa.</p>
+                <p>Fundada em 2025, a nossa jornada começou com a frustração de não encontrar uma loja em Portugal que combinasse produtos de luxo com uma abordagem moderna e discreta. Decidimos então criar a nossa. Cada produto na nossa coleção é rigorosamente selecionado, não só pelo seu design inovador, mas também pela qualidade e segurança dos materiais. Trabalhamos apenas com marcas de renome que partilham os nossos valores.</p>
+                <div class="bg-secondary p-6 rounded-lg my-6">
+                    <blockquote class="border-l-4 border-accent pl-4 italic text-white">
+                        "Para nós, a sua privacidade é inegociável. Desde a navegação segura no nosso site até à embalagem 100% discreta e sem qualquer marca exterior, cada passo do processo foi pensado para garantir a sua total tranquilidade."
+                    </blockquote>
                 </div>
-                <div>
-                    <h3 class="text-2xl font-bold mb-4" data-i18n="ourValuesTitle">Nossos Valores</h3>
-                    <ul class="space-y-3">
-                        <li class="flex items-start">
-                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
-                            <span data-i18n-html="valueDiscretion"><strong class="font-semibold">Discrição:</strong> Garantimos total privacidade em todas as suas compras.</span>
-                        </li>
-                        <li class="flex items-start">
-                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
-                            <span data-i18n-html="valueQuality"><strong class="font-semibold">Qualidade:</strong> Selecionamos apenas produtos de marcas confiáveis e testadas.</span>
-                        </li>
-                        <li class="flex items-start">
-                           <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
-                            <span data-i18n-html="valueSecurity"><strong class="font-semibold">Segurança:</strong> Utilizamos as mais avançadas tecnologias de segurança.</span>
-                        </li>
-                        <li class="flex items-start">
-                            <i class="fas fa-check-circle text-accent mr-3 mt-1"></i>
-                            <span data-i18n-html="valueRespect"><strong class="font-semibold">Respeito:</strong> Tratamos todos os clientes com dignidade e profissionalismo.</span>
-                        </li>
-                    </ul>
-                </div>
-                 <div>
-                    <h3 class="text-2xl font-bold mb-3" data-i18n="privacyCommitmentTitle">Compromisso com a Privacidade</h3>
-                    <p data-i18n="privacyCommitmentText">Entendemos a importância da privacidade em compras íntimas. Por isso, utilizamos embalagens discretas, faturamento sem descrição do produto e garantimos que suas informações pessoais estejam sempre protegidas.</p>
-                </div>
+                <p>Quer esteja a explorar a sua sexualidade, a apimentar a sua relação ou simplesmente a cuidar do seu bem-estar, a Desire está aqui para o acompanhar. Obrigado por fazer parte da nossa comunidade.</p>
             </div>
             <!-- Right Column: Stats -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -218,18 +214,6 @@
                     <p class="text-gray-400 mt-2" data-i18n="statGuaranteeLabel">Garantia de Satisfação</p>
                 </div>
             </div>
-        </div>
-    </div>
-</section>
-
-<section id="recently-viewed-section" class="py-16 sm:py-24 bg-primary hidden">
-    <div class="container mx-auto px-4">
-        <h2 class="text-4xl font-bold text-center mb-4" data-i18n="recentlyViewedTitle">Vistos Recentemente</h2>
-        <p class="text-center text-gray-400 mb-12 max-w-2xl mx-auto" data-i18n="recentlyViewedSubtitle">Continue de onde parou.</p>
-        <div class="relative">
-            <div class="flex overflow-x-auto snap-x snap-mandatory scroll-p-4 gap-8 -mx-4 px-4" id="recently-viewed-carousel"></div>
-            <button aria-label="Produtos vistos anteriormente" class="absolute top-1/2 -translate-y-1/2 -left-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="recently-viewed-prev" data-i18n-aria="prevViewedProducts"><i class="fas fa-chevron-left"></i></button>
-            <button aria-label="Próximos produtos vistos" class="absolute top-1/2 -translate-y-1/2 -right-4 rounded-full w-12 h-12 flex items-center justify-center shadow-lg carousel-nav-btn" id="recently-viewed-next" data-i18n-aria="nextViewedProducts"><i class="fas fa-chevron-right"></i></button>
         </div>
     </div>
 </section>

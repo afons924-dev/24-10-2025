@@ -391,8 +391,13 @@ const app = {
             else if (closest('#search-icon')) { this.openSearch(); }
             else if (closest('#close-search-btn')) { this.closeSearch(); }
             else if (closest('.search-suggestion-item')) {
-                // Clicking a specific item, allow navigation before closing
-                setTimeout(() => this.closeSearch(), 50);
+                // This handles both product items and category links.
+                // For categories, we close immediately. For products, we add a small delay.
+                if (closest('a').href.includes('/products?category=')) {
+                    this.closeSearch();
+                } else {
+                    setTimeout(() => this.closeSearch(), 50);
+                }
             }
              else if (closest('#search-suggestions a.block')) {
                 // This specifically targets the "See all results" link.
@@ -622,9 +627,29 @@ const app = {
         this.initHeroCarousel();
         this.initFeaturedProductCarousel();
         await this.renderTestimonials();
+        this.initTestimonialsCarousel();
     this.renderRecentlyViewed();
         this.animateHomePageElements();
         this.initFlashSale();
+    },
+
+    initTestimonialsCarousel() {
+        const carousel = document.getElementById('testimonials-container');
+        const prevBtn = document.getElementById('testimonials-prev');
+        const nextBtn = document.getElementById('testimonials-next');
+        if (!carousel || !prevBtn || !nextBtn) return;
+
+        const updateCarouselButtons = () => {
+            const maxScrollLeft = carousel.scrollWidth - carousel.clientWidth;
+            prevBtn.style.display = carousel.scrollLeft > 0 ? 'flex' : 'none';
+            nextBtn.style.display = carousel.scrollLeft < maxScrollLeft -1 ? 'flex' : 'none';
+        };
+
+        carousel.addEventListener('scroll', updateCarouselButtons);
+        nextBtn.addEventListener('click', () => carousel.scrollBy({ left: carousel.clientWidth, behavior: 'smooth' }));
+        prevBtn.addEventListener('click', () => carousel.scrollBy({ left: -carousel.clientWidth, behavior: 'smooth' }));
+
+        setTimeout(updateCarouselButtons, 100); // Initial check
     },
 
     initHeroCarousel() {
@@ -787,12 +812,12 @@ const app = {
                 where("status", "==", "approved"),
                 where("score", ">=", 4),
                 orderBy("createdAt", "desc"),
-                limit(3)
+                limit(9) // Load more for the carousel
             );
             const querySnapshot = await getDocs(q);
             const reviews = querySnapshot.docs.map(doc => doc.data());
 
-            if (reviews.length > 0) {
+            if (reviews.length > 2) { // Need at least 3 for a carousel to make sense
                 container.innerHTML = reviews.map(review => {
                     const author = review.userName || 'Anónimo';
                     const avatarId = author.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -800,11 +825,13 @@ const app = {
                     const quote = review.comment || 'Excelente produto! Recomendo vivamente.';
 
                     return `
-                    <div class="bg-primary p-8 rounded-lg text-center">
-                        <p class="text-gray-300 italic mb-6">"${quote}"</p>
-                        <div class="flex items-center justify-center">
-                            <img src="${avatar}" alt="Avatar de ${author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
-                            <span class="font-bold text-white">${author}</span>
+                    <div class="snap-start shrink-0 w-full md:w-1/3 p-4">
+                        <div class="bg-primary p-8 rounded-lg text-center h-full flex flex-col justify-center">
+                            <p class="text-gray-300 italic mb-6">"${quote}"</p>
+                            <div class="flex items-center justify-center">
+                                <img src="${avatar}" alt="Avatar de ${author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
+                                <span class="font-bold text-white">${author}</span>
+                            </div>
                         </div>
                     </div>`;
                 }).join('');
@@ -826,11 +853,13 @@ const app = {
             { quote: "Fiquei impressionada com a atenção ao detalhe, desde a embalagem discreta ao apoio ao cliente. Sentimo-nos valorizados.", author: "Sofia L.", avatar: "https://i.pravatar.cc/150?u=a042581f4e29026706d" }
         ];
         container.innerHTML = testimonials.map(t => `
-            <div class="bg-primary p-8 rounded-lg text-center">
-                <p class="text-gray-300 italic mb-6">"${t.quote}"</p>
-                <div class="flex items-center justify-center">
-                    <img src="${t.avatar}" alt="Avatar de ${t.author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
-                    <span class="font-bold text-white">${t.author}</span>
+            <div class="snap-start shrink-0 w-full md:w-1/3 p-4">
+                <div class="bg-primary p-8 rounded-lg text-center h-full flex flex-col justify-center">
+                    <p class="text-gray-300 italic mb-6">"${t.quote}"</p>
+                    <div class="flex items-center justify-center">
+                        <img src="${t.avatar}" alt="Avatar de ${t.author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
+                        <span class="font-bold text-white">${t.author}</span>
+                    </div>
                 </div>
             </div>`).join('');
     },
@@ -1174,7 +1203,7 @@ const app = {
         return `
             <div class="mt-12 pt-8 border-t-2 border-gray-700">
                 <h3 class="text-3xl font-bold text-center mb-8">Também poderá gostar</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${relatedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}
                 </div>
             </div>
@@ -1194,7 +1223,7 @@ const app = {
         return `
             <div class="mt-12 pt-8 border-t-2 border-gray-700">
                 <h3 class="text-3xl font-bold text-center mb-8">Também poderá gostar</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${relatedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}
                 </div>
             </div>
@@ -3281,7 +3310,7 @@ const app = {
         const cartItemIds = this.cart.map(item => item.id);
         const recommendedProducts = this.products.filter(p => !cartItemIds.includes(p.id)).sort(() => 0.5 - Math.random()).slice(0, 2);
         if (recommendedProducts.length === 0) return '';
-        return `<div id="cart-recommendations" class="mt-8 bg-primary p-6 rounded-lg"><h3 class="text-xl font-bold mb-4">💕 Também poderá gostar:</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${recommendedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}</div></div>`;
+        return `<div id="cart-recommendations" class="mt-8 bg-primary p-6 rounded-lg"><h3 class="text-xl font-bold mb-4">💕 Também poderá gostar:</h3><div class="grid grid-cols-2 sm:grid-cols-2 gap-4">${recommendedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}</div></div>`;
     },
 
     initFilters(params) {
@@ -3669,7 +3698,7 @@ const app = {
             return `
             <div class="bg-secondary rounded-lg overflow-hidden">
                 <button class="accordion-header w-full flex justify-between items-center p-4 text-left gap-4">
-                    <span class="font-bold text-white">#${order.id.substring(0, 8).toUpperCase()}</span>
+                    <span class="font-bold text-white text-sm">#${order.id.substring(0, 8).toUpperCase()}</span>
                     <span class="text-gray-400 hidden sm:inline">${orderDate}</span>
                     <span class="font-semibold text-white flex-1 text-right">€${order.total.toFixed(2)}</span>
                     <span class="py-1 px-3 rounded-full text-xs font-bold whitespace-nowrap ${this.getStatusColor(status)}">${status}</span>
