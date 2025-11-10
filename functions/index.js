@@ -194,12 +194,13 @@ const fulfillOrder = async (paymentIntent) => {
     }
     console.log(`[fulfillOrder] - Session data is valid. UserID: ${userId}, Cart items: ${cart.length}`);
 
-    const orderRef = db.collection("orders").doc();
     const userRef = db.collection("users").doc(userId);
     const mailCollection = db.collection("mail");
     const ADMIN_EMAIL = "geral@darkdesire.pt"; // Centralized admin email
+    let orderRef; // Declare here to be accessible in catch block
 
     try {
+        orderRef = db.collection("orders").doc(); // Define here for the transaction
         console.log(`[fulfillOrder] - Starting Firestore transaction for order ${orderRef.id}`);
         // Run the core logic within a transaction
         await db.runTransaction(async (transaction) => {
@@ -491,3 +492,8 @@ exports.setAdminClaim = onCall({region: 'europe-west3'}, async (request) => {
         throw new HttpsError('internal', 'An internal error occurred while trying to set the admin claim.');
     }
 });
+
+// Export for testing purposes
+if (process.env.NODE_ENV === 'test') {
+    exports.fulfillOrder = fulfillOrder;
+}
