@@ -517,7 +517,7 @@ exports.aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRES
         authUrl.searchParams.append("client_id", appKey);
         authUrl.searchParams.append("redirect_uri", redirectUri);
         authUrl.searchParams.append("state", state);
-        authUrl.searchParams.append("sp", "ae.trade.buy.place.order"); // Scope for placing orders
+        authUrl.searchParams.append("sp", "ae"); // Scope for placing orders
 
         return res.redirect(authUrl.toString());
 
