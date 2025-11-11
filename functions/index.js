@@ -34,16 +34,6 @@ const cors = require("cors")({
     }
 });
 
-// It is best practice to store sensitive keys in environment variables.
-// The STRIPE_SECRET_KEY is defined in the function secrets, and accessed via process.env
-let stripe;
-if (process.env.STRIPE_SECRET_KEY) {
-    stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-} else {
-    // This will be logged during function initialization if the secret is not set.
-    console.error("CRITICAL: STRIPE_SECRET_KEY is not configured as a secret. Payment functions will fail.");
-}
-
 /**
  * Creates a Stripe Payment Intent.
  * This is called by the client-side to initialize the payment flow.
@@ -51,7 +41,8 @@ if (process.env.STRIPE_SECRET_KEY) {
  * Firestore document to pass cart data, avoiding metadata limits.
  */
 exports.createStripePaymentIntent = onCall({region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
-    if (!stripe) {
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    if (!process.env.STRIPE_SECRET_KEY) {
         console.error("Stripe not configured. Ensure STRIPE_SECRET_KEY is set.");
         throw new HttpsError('internal', 'Internal payment server error.');
     }
@@ -320,6 +311,7 @@ const fulfillOrder = async (paymentIntent) => {
  * v3 - Force update.
  */
 exports.stripeWebhook = onRequest({region: 'europe-west3', secrets: ["STRIPE_WEBHOOK_SECRET", "STRIPE_SECRET_KEY"]}, async (req, res) => {
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
     let event;
 
     // Securely verify the webhook signature.
