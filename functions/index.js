@@ -514,7 +514,7 @@ exports.aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRES
 
         const authUrl = new URL(ALIEXPRESS_AUTH_URL);
         authUrl.searchParams.append("response_type", "code");
-        authUrl.searchParams.append("client_id", appKey);
+        authUrl.searchParams.append("appkey", appKey);
         authUrl.searchParams.append("redirect_uri", redirectUri);
         authUrl.searchParams.append("state", state);
         authUrl.searchParams.append("sp", "ae"); // Scope for placing orders
@@ -559,7 +559,7 @@ exports.aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["
     try {
         const tokenResponse = await axios.post(ALIEXPRESS_TOKEN_URL, new URLSearchParams({
             grant_type: 'authorization_code',
-            client_id: appKey,
+            appkey: appKey,
             client_secret: appSecret,
             redirect_uri: redirectUri,
             code: code,
