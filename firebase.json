@@ -20,15 +20,11 @@
     ],
     "rewrites": [
       {
-        "source": "/product-detail**",
+        "source": "/product-detail/**",
         "function": "ssr"
       },
       {
-        "source": "/",
-        "function": "ssr"
-      },
-      {
-        "source": "**",
+        "source": "!/(@(css|js|locales|templates)/**|*.*)",
         "destination": "/index.html"
       }
     ],
