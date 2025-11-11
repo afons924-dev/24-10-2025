@@ -1409,6 +1409,42 @@ const app = {
 
         const aliExpressUrlInput = document.getElementById('aliexpress-url');
         if (aliExpressUrlInput) {
+            // AliExpress Integration Section
+            if (this.userProfile?.isAdmin) {
+                const aliexpressSection = document.getElementById('aliexpress-integration-section');
+                const urlParams = new URLSearchParams(window.location.search);
+                let statusMessage = '';
+                if (urlParams.has('aliexpress')) {
+                        if(urlParams.get('aliexpress') === 'success') {
+                        statusMessage = '<p class="text-green-400">A sua conta AliExpress foi conectada com sucesso!</p>';
+                        } else {
+                        statusMessage = '<p class="text-red-500">Ocorreu um erro ao conectar a sua conta AliExpress.</p>';
+                        }
+                }
+
+                aliexpressSection.innerHTML = `
+                    <h3 class="text-xl font-bold mb-4">Integração AliExpress</h3>
+                    ${statusMessage}
+                    <p class="text-gray-400 mb-4">Conecte a sua conta de vendedor AliExpress para automatizar o processo de dropshipping.</p>
+                    <button class="btn btn-primary" id="connect-aliexpress-btn">Conectar ao AliExpress</button>
+                `;
+
+                document.getElementById('connect-aliexpress-btn').addEventListener('click', async () => {
+                    if (!this.user) {
+                        this.showToast('Faça login para conectar ao AliExpress.', 'error');
+                        return;
+                    }
+                    this.showLoading();
+                    try {
+                        const idToken = await this.user.getIdToken();
+                        window.location.href = `/aliexpressAuth?token=${idToken}`;
+                    } catch (error) {
+                        console.error("Error getting ID token:", error);
+                        this.showToast('Erro de autenticação. Tente novamente.', 'error');
+                        this.hideLoading();
+                    }
+                });
+            }
             aliExpressUrlInput.addEventListener('paste', async (e) => {
                 e.preventDefault();
                 const url = (e.clipboardData || window.clipboardData).getData('text');
@@ -3598,42 +3634,6 @@ const app = {
                     const pointsEl = document.getElementById('loyalty-points-display');
                     if (pointsEl) {
                         pointsEl.textContent = this.userProfile.loyaltyPoints || 0;
-                    }
-                    // AliExpress Integration Section
-                    if (this.userProfile?.isAdmin) {
-                        const aliexpressSection = document.getElementById('aliexpress-integration-section');
-                        const urlParams = new URLSearchParams(window.location.search);
-                        let statusMessage = '';
-                        if (urlParams.has('aliexpress')) {
-                             if(urlParams.get('aliexpress') === 'success') {
-                                statusMessage = '<p class="text-green-400">A sua conta AliExpress foi conectada com sucesso!</p>';
-                             } else {
-                                statusMessage = '<p class="text-red-500">Ocorreu um erro ao conectar a sua conta AliExpress.</p>';
-                             }
-                        }
-
-                        aliexpressSection.innerHTML = `
-                            <h3 class="text-xl font-bold mb-4">Integração AliExpress</h3>
-                            ${statusMessage}
-                            <p class="text-gray-400 mb-4">Conecte a sua conta de vendedor AliExpress para automatizar o processo de dropshipping.</p>
-                            <button class="btn btn-primary" id="connect-aliexpress-btn">Conectar ao AliExpress</button>
-                        `;
-
-                        document.getElementById('connect-aliexpress-btn').addEventListener('click', async () => {
-                            if (!this.user) {
-                                this.showToast('Faça login para conectar ao AliExpress.', 'error');
-                                return;
-                            }
-                            this.showLoading();
-                            try {
-                                const idToken = await this.user.getIdToken();
-                                window.location.href = `/functions/aliexpressAuth?token=${idToken}`;
-                            } catch (error) {
-                                console.error("Error getting ID token:", error);
-                                this.showToast('Erro de autenticação. Tente novamente.', 'error');
-                                this.hideLoading();
-                            }
-                        });
                     }
                 }
             } else {

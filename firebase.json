@@ -24,6 +24,14 @@
         "function": "ssr"
       },
       {
+        "source": "/aliexpressAuth",
+        "function": "aliexpressAuth"
+      },
+      {
+        "source": "/aliexpressOAuthCallback",
+        "function": "aliexpressOAuthCallback"
+      },
+      {
         "source": "!/(@(css|js|locales|templates)/**|*.*)",
         "destination": "/index.html"
       }
