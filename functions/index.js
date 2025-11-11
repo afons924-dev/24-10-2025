@@ -509,7 +509,7 @@ exports.aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRES
 
         // Dynamically construct the redirect URI
         const region = process.env.FUNCTION_REGION || 'europe-west3';
-        const projectId = process.env.GCP_PROJECT;
+        const projectId = JSON.parse(process.env.FIREBASE_CONFIG).projectId;
         const redirectUri = `https://${region}-${projectId}.cloudfunctions.net/aliexpressOAuthCallback`;
 
         const authUrl = new URL(ALIEXPRESS_AUTH_URL);
@@ -553,7 +553,7 @@ exports.aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["
 
     // Dynamically construct the redirect URI
     const region = process.env.FUNCTION_REGION || 'europe-west3';
-    const projectId = process.env.GCP_PROJECT;
+    const projectId = JSON.parse(process.env.FIREBASE_CONFIG).projectId;
     const redirectUri = `https://${region}-${projectId}.cloudfunctions.net/aliexpressOAuthCallback`;
 
     try {
