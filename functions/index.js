@@ -514,12 +514,14 @@ exports.aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRES
 
         const authUrl = new URL(ALIEXPRESS_AUTH_URL);
         authUrl.searchParams.append("response_type", "code");
-        authUrl.searchParams.append("app_key", appKey);
+        authUrl.searchParams.append("client_id", appKey);
         authUrl.searchParams.append("redirect_uri", redirectUri);
         authUrl.searchParams.append("state", state);
-        authUrl.searchParams.append("sp", "ae"); // Scope for placing orders
+        authUrl.searchParams.append("sp", "ae");
 
-        return res.redirect(authUrl.toString());
+        const finalAuthUrl = authUrl.toString();
+
+        return res.redirect(finalAuthUrl);
 
     } catch (error) {
         console.error("Error verifying auth token:", error);
@@ -559,7 +561,7 @@ exports.aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["
     try {
         const tokenResponse = await axios.post(ALIEXPRESS_TOKEN_URL, new URLSearchParams({
             grant_type: 'authorization_code',
-            app_key: appKey,
+            client_id: appKey,
             client_secret: appSecret,
             redirect_uri: redirectUri,
             code: code,
