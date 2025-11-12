@@ -519,9 +519,7 @@ exports.aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRES
         authUrl.searchParams.append("state", state);
         authUrl.searchParams.append("sp", "ae");
 
-        const finalAuthUrl = authUrl.toString();
-
-        return res.redirect(finalAuthUrl);
+        return res.redirect(authUrl.toString());
 
     } catch (error) {
         console.error("Error verifying auth token:", error);
