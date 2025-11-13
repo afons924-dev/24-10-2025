@@ -12,13 +12,15 @@ const templatesPath = path.join(__dirname, '..', 'templates');
 
 function init(database) {
     db = database;
-    try {
-        indexHtml = fs.readFileSync(rootTemplatePath, 'utf8');
-        console.log("Root index.html loaded successfully.");
-        preloadTemplates();
-    } catch (e) {
-        console.error("CRITICAL: Could not read root index.html. SSR will fail.", e);
-        indexHtml = "<html><body>Error loading page.</body></html>";
+    if (!indexHtml) { // Only load if not already loaded
+        try {
+            indexHtml = fs.readFileSync(rootTemplatePath, 'utf8');
+            console.log("Root index.html loaded successfully.");
+            preloadTemplates();
+        } catch (e) {
+            console.error("CRITICAL: Could not read root index.html. SSR will fail.", e);
+            indexHtml = "<html><body>Error loading page.</body></html>";
+        }
     }
 }
 
