@@ -20,10 +20,6 @@
     ],
     "rewrites": [
       {
-        "source": "/product-detail/**",
-        "function": "ssr"
-      },
-      {
         "source": "/aliexpressAuth",
         "function": "aliexpressAuth"
       },
