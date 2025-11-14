@@ -27,7 +27,7 @@ function createSignature(secret, params) {
  * Initiates the AliExpress OAuth2 flow.
  * Redirects the user to the AliExpress authorization page.
  */
-const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY"]}, async (req, res) => {
+const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_CALLBACK_URL"]}, async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
@@ -48,7 +48,7 @@ const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_
             return res.status(500).send("Server misconfiguration: Missing callback URL.");
         }
 
-        const authUrl = new URL("https://api-sg.aliexpress.com/oauth/authorize");
+        const authUrl = new URL("https://auth.aliexpress.com/oauth/authorize");
         authUrl.searchParams.append("response_type", "code");
         authUrl.searchParams.append("client_id", appKey);
         authUrl.searchParams.append("redirect_uri", redirectUri);
