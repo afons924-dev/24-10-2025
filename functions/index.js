@@ -74,15 +74,15 @@ exports.aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["
     const redirectUri = `https://${region}-${projectId}.cloudfunctions.net/aliexpressOAuthCallback`;
 
     try {
-        const tokenResponse = await axios.post(ALIEXPRESS_TOKEN_URL, {
+        const tokenResponse = await axios.post(ALIEXPRESS_TOKEN_URL, new URLSearchParams({
             grant_type: 'authorization_code',
-            app_id: appKey,
+            app_key: appKey,
             app_secret: appSecret,
             redirect_uri: redirectUri,
             code: code,
-        }, {
+        }).toString(), {
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/x-www-form-urlencoded'
             }
         });
 
