@@ -1,5 +1,4 @@
 // functions/src/aliexpressAuth.js
-const crypto = require("crypto");
 const { URLSearchParams } = require("url");
 const {onRequest} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
@@ -74,39 +73,15 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
       return res.status(500).send("Server misconfiguration");
     }
 
-    // 3) Preparar os parâmetros para a assinatura e para o corpo do pedido
-    const paramsToSign = {
-        client_id: CLIENT_ID,
-        code: authCode,
-        grant_type: "authorization_code",
-        redirect_uri: CALLBACK_URL,
-    };
-
-    // A API da AliExpress exige que os parâmetros para a assinatura sejam ordenados alfabeticamente
-    const sortedParams = Object.keys(paramsToSign).sort().reduce(
-        (obj, key) => {
-            obj[key] = paramsToSign[key];
-            return obj;
-        },
-        {}
-    );
-
-    // Concatenar os parâmetros ordenados numa única string
-    const signString = Object.entries(sortedParams).map(([key, value]) => `${key}${value}`).join('');
-
-    // Gerar a assinatura HMAC-SHA256
-    const sign = crypto.createHmac('sha256', CLIENT_SECRET).update(signString).digest('hex').toUpperCase();
-
-    // 4) Construir o corpo final do pedido, incluindo o client_secret (que não faz parte da assinatura) e o sign
-    const bodyParams = {
-        ...paramsToSign,
-        client_secret: CLIENT_SECRET,
-        sign: sign
-    };
-
-    const body = new URLSearchParams(bodyParams);
-
-    const tokenUrl = "https://api-sg.aliexpress.com/oauth/token";
+    // 3) Trocar auth_code por access_token — método POST, application/x-www-form-urlencoded
+    const tokenUrl = "https://oauth.aliexpress.com/token";
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code: authCode,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: CALLBACK_URL,
+    });
 
     const tokenResp = await fetch(tokenUrl, {
       method: "POST",
