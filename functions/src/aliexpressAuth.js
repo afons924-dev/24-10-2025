@@ -2,6 +2,26 @@
 const { URLSearchParams } = require("url");
 const {onRequest} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
+
+/**
+ * Creates a signature for AliExpress API calls.
+ * @param {string} secret The client secret.
+ * @param {object} params The parameters to sign.
+ * @returns {string} The HMAC-SHA256 signature in uppercase.
+ */
+function createSignature(secret, params) {
+    const sortedKeys = Object.keys(params).sort();
+    let signString = "";
+    for (const key of sortedKeys) {
+        if (params[key] !== undefined && params[key] !== null) {
+            signString += `${key}${params[key]}`;
+        }
+    }
+    const hmac = crypto.createHmac("sha256", secret);
+    hmac.update(signString);
+    return hmac.digest("hex").toUpperCase();
+}
 
 /**
  * Initiates the AliExpress OAuth2 flow.
@@ -21,10 +41,12 @@ const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_
         const appKey = process.env.ALIEXPRESS_APP_KEY;
         const state = `uid=${uid}`; // Pass the UID in the state to identify the user on callback
 
-        // Dynamically construct the redirect URI
-        const region = process.env.FUNCTION_REGION || 'europe-west3';
-        const projectId = JSON.parse(process.env.FIREBASE_CONFIG).projectId;
-        const redirectUri = `https://${region}-${projectId}.cloudfunctions.net/aliexpressOAuthCallback`;
+        // Use the configured callback URL
+        const redirectUri = process.env.ALIEXPRESS_CALLBACK_URL;
+        if (!redirectUri) {
+            console.error("ALIEXPRESS_CALLBACK_URL environment variable is not set.");
+            return res.status(500).send("Server misconfiguration: Missing callback URL.");
+        }
 
         const authUrl = new URL("https://api-sg.aliexpress.com/oauth/authorize");
         authUrl.searchParams.append("response_type", "code");
@@ -75,13 +97,17 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
 
     // 3) Trocar auth_code por access_token — método POST, application/x-www-form-urlencoded
     const tokenUrl = "https://api-sg.aliexpress.com/oauth/token"; // endpoint típico - ver dev console se necessário
-    const body = new URLSearchParams({
+    const params = {
       grant_type: "authorization_code",
       code: authCode,
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       redirect_uri: CALLBACK_URL,
-    });
+    };
+    const sign = createSignature(CLIENT_SECRET, params);
+    params.sign = sign;
+
+    const body = new URLSearchParams(params);
 
     const tokenResp = await fetch(tokenUrl, {
       method: "POST",
