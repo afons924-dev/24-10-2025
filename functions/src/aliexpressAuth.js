@@ -1,4 +1,5 @@
 // functions/src/aliexpressAuth.js
+const crypto = require("crypto");
 const { URLSearchParams } = require("url");
 const {onRequest} = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
@@ -63,25 +64,49 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
     }
 
     // 2) Parametros (usar secrets / env vars)
-    const CLIENT_ID = process.env.ALIEXPRESS_APP_KEY;
-    const CLIENT_SECRET = process.env.ALIEXPRESS_APP_SECRET;
+    const CLIENT_ID = process.env.ALIEXPRESS_APP_KEY.trim();
+    const CLIENT_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
     // CALLBACK_URL deve ser exactamente igual ao redirect URI registado no AliExpress dev console
-    const CALLBACK_URL = process.env.ALIEXPRESS_CALLBACK_URL; // ex: https://europe-west3-.../aliexpressOAuthCallback
+    const CALLBACK_URL = process.env.ALIEXPRESS_CALLBACK_URL.trim(); // ex: https://europe-west3-.../aliexpressOAuthCallback
 
     if (!CLIENT_ID || !CLIENT_SECRET || !CALLBACK_URL) {
       console.error("Missing AliExpress env vars");
       return res.status(500).send("Server misconfiguration");
     }
 
-    // 3) Trocar auth_code por access_token — método POST, application/x-www-form-urlencoded
-    const tokenUrl = "https://api-sg.aliexpress.com/oauth/token"; // endpoint típico - ver dev console se necessário
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      code: authCode,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-      redirect_uri: CALLBACK_URL,
-    });
+    // 3) Preparar os parâmetros para a assinatura e para o corpo do pedido
+    const paramsToSign = {
+        client_id: CLIENT_ID,
+        code: authCode,
+        grant_type: "authorization_code",
+        redirect_uri: CALLBACK_URL,
+    };
+
+    // A API da AliExpress exige que os parâmetros para a assinatura sejam ordenados alfabeticamente
+    const sortedParams = Object.keys(paramsToSign).sort().reduce(
+        (obj, key) => {
+            obj[key] = paramsToSign[key];
+            return obj;
+        },
+        {}
+    );
+
+    // Concatenar os parâmetros ordenados numa única string
+    const signString = Object.entries(sortedParams).map(([key, value]) => `${key}${value}`).join('');
+
+    // Gerar a assinatura HMAC-SHA256
+    const sign = crypto.createHmac('sha256', CLIENT_SECRET).update(signString).digest('hex').toUpperCase();
+
+    // 4) Construir o corpo final do pedido, incluindo o client_secret (que não faz parte da assinatura) e o sign
+    const bodyParams = {
+        ...paramsToSign,
+        client_secret: CLIENT_SECRET,
+        sign: sign
+    };
+
+    const body = new URLSearchParams(bodyParams);
+
+    const tokenUrl = "https://api-sg.aliexpress.com/oauth/token";
 
     const tokenResp = await fetch(tokenUrl, {
       method: "POST",
