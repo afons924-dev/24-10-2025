@@ -26,7 +26,7 @@ const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_
         const projectId = JSON.parse(process.env.FIREBASE_CONFIG).projectId;
         const redirectUri = `https://${region}-${projectId}.cloudfunctions.net/aliexpressOAuthCallback`;
 
-        const authUrl = new URL("https://api-sg.aliexpress.com/oauth/authorize");
+        const authUrl = new URL("https://auth.aliexpress.com/oauth/authorize");
         authUrl.searchParams.append("response_type", "code");
         authUrl.searchParams.append("client_id", appKey);
         authUrl.searchParams.append("redirect_uri", redirectUri);
@@ -74,7 +74,7 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
     }
 
     // 3) Trocar auth_code por access_token — método POST, application/x-www-form-urlencoded
-    const tokenUrl = "https://oauth.aliexpress.com/token";
+    const tokenUrl = "https://api-sg.aliexpress.com/oauth/token";
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code: authCode,
@@ -124,7 +124,14 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
     return res.redirect('https://desire-loja-final.web.app/#/account?aliexpress=success');
 
   } catch (err) {
-    console.error("aliexpressOAuthCallback unexpected error:", err);
+    console.error("aliexpressOAuthCallback unexpected error:", {
+      message: err.message,
+      stack: err.stack,
+      response: err.response ? {
+          status: err.response.status,
+          data: err.response.data
+      } : 'No response object'
+    });
     return res.redirect('https://desire-loja-final.web.app/#/account?aliexpress=error');
   }
 });
