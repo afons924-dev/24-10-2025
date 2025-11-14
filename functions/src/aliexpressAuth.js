@@ -18,7 +18,7 @@ const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_
         const decodedToken = await admin.auth().verifyIdToken(token);
         const uid = decodedToken.uid;
 
-        const appKey = process.env.ALIEXPRESS_APP_KEY;
+        const appKey = process.env.ALIEXPRESS_APP_KEY.trim();
         const state = `uid=${uid}`; // Pass the UID in the state to identify the user on callback
 
         // Dynamically construct the redirect URI
