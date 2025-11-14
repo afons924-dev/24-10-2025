@@ -101,13 +101,17 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
       grant_type: "authorization_code",
       code: authCode,
       client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
       redirect_uri: CALLBACK_URL,
     };
     const sign = createSignature(CLIENT_SECRET, params);
-    params.sign = sign;
 
-    const body = new URLSearchParams(params);
+    const bodyParams = {
+        ...params,
+        client_secret: CLIENT_SECRET,
+        sign: sign,
+    };
+
+    const body = new URLSearchParams(bodyParams);
 
     const tokenResp = await fetch(tokenUrl, {
       method: "POST",
