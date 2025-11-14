@@ -24,11 +24,11 @@
         "function": "ssr"
       },
       {
-        "source": "/aliexpressAuth$",
+        "source": "/aliexpressAuth",
         "function": "aliexpressAuth"
       },
       {
-        "source": "/aliexpressOAuthCallback$",
+        "source": "/aliexpressOAuthCallback",
         "function": "aliexpressOAuthCallback"
       },
       {
