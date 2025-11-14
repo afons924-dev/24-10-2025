@@ -38,11 +38,11 @@ const aliexpressAuth = onRequest({region: 'europe-west3', secrets: ["ALIEXPRESS_
         const decodedToken = await admin.auth().verifyIdToken(token);
         const uid = decodedToken.uid;
 
-        const appKey = process.env.ALIEXPRESS_APP_KEY;
+        const appKey = process.env.ALIEXPRESS_APP_KEY?.trim();
         const state = `uid=${uid}`; // Pass the UID in the state to identify the user on callback
 
         // Use the configured callback URL
-        const redirectUri = process.env.ALIEXPRESS_CALLBACK_URL;
+        const redirectUri = process.env.ALIEXPRESS_CALLBACK_URL?.trim();
         if (!redirectUri) {
             console.error("ALIEXPRESS_CALLBACK_URL environment variable is not set.");
             return res.status(500).send("Server misconfiguration: Missing callback URL.");
@@ -85,10 +85,10 @@ const aliexpressOAuthCallback = onRequest({region: 'europe-west3', secrets: ["AL
     }
 
     // 2) Parametros (usar secrets / env vars)
-    const CLIENT_ID = process.env.ALIEXPRESS_APP_KEY;
-    const CLIENT_SECRET = process.env.ALIEXPRESS_APP_SECRET;
+    const CLIENT_ID = process.env.ALIEXPRESS_APP_KEY?.trim();
+    const CLIENT_SECRET = process.env.ALIEXPRESS_APP_SECRET?.trim();
     // CALLBACK_URL deve ser exactamente igual ao redirect URI registado no AliExpress dev console
-    const CALLBACK_URL = process.env.ALIEXPRESS_CALLBACK_URL; // ex: https://europe-west3-.../aliexpressOAuthCallback
+    const CALLBACK_URL = process.env.ALIEXPRESS_CALLBACK_URL?.trim(); // ex: https://europe-west3-.../aliexpressOAuthCallback
 
     if (!CLIENT_ID || !CLIENT_SECRET || !CALLBACK_URL) {
       console.error("Missing AliExpress env vars");
