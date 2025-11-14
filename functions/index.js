@@ -1,8 +1,6 @@
-const admin = require("firebase-admin");
-const { aliexpressAuth, aliexpressOAuthCallback, firebaseAuthCallback } = require("./src/aliexpressAuth");
+// functions/index.js (simplified for debugging)
+const {onRequest} = require("firebase-functions/v2/https");
 
-admin.initializeApp();
-
-exports.aliexpressAuth = aliexpressAuth;
-exports.aliexpressOAuthCallback = aliexpressOAuthCallback;
-exports.firebaseAuthCallback = firebaseAuthCallback;
+exports.helloWorld = onRequest((request, response) => {
+  response.send("Hello from Firebase!");
+});
