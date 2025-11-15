@@ -24,10 +24,11 @@ const _importAliExpressProductLogic = async (data, context) => {
 
     // 3. Prepare API Request Parameters
     const APP_KEY = process.env.ALIEXPRESS_APP_KEY.trim();
-    const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
+    const ACCESS_TOKEN = process.env.ALIEXPRESS_ACCESS_TOKEN.trim();
     const API_URL = "https://api-sg.aliexpress.com/sync";
 
     const params = {
+        access_token: ACCESS_TOKEN,
         app_key: APP_KEY,
         format: 'json',
         method: 'aliexpress.ds.product.get',
@@ -37,15 +38,7 @@ const _importAliExpressProductLogic = async (data, context) => {
         v: '2.0',
     };
 
-    // 4. Generate Signature
-    const sortedKeys = Object.keys(params).sort();
-    const signString = sortedKeys.map(key => `${key}${params[key]}`).join('');
-
-    const hmac = crypto.createHmac('sha256', APP_SECRET);
-    hmac.update(signString);
-    params.sign = hmac.digest('hex').toUpperCase();
-
-    // 5. Make the API Call
+    // 4. Make the API Call
     const queryString = new URLSearchParams(params).toString();
 
     try {
@@ -86,7 +79,7 @@ const _importAliExpressProductLogic = async (data, context) => {
  * Imports a product from AliExpress using the Dropshipping API.
  * This is an authenticated function, callable from the client-side admin panel.
  */
-const importAliExpressProduct = onCall({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, (request) => {
+const importAliExpressProduct = onCall({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_ACCESS_TOKEN"] }, (request) => {
     return _importAliExpressProductLogic(request.data, { auth: request.auth });
 });
 

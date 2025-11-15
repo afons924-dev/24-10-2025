@@ -233,6 +233,7 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         sinon.stub(process, 'env').value({
             ALIEXPRESS_APP_KEY: 'test_app_key',
             ALIEXPRESS_APP_SECRET: 'test_app_secret',
+            ALIEXPRESS_ACCESS_TOKEN: 'test_access_token',
         });
     });
 
