@@ -1,8 +1,7 @@
 const admin = require("firebase-admin");
-const { aliexpressAuth, aliexpressOAuthCallback, firebaseAuthCallback } = require("./src/aliexpressAuth");
+const { importAliExpressProduct, firebaseAuthCallback } = require("./src/aliexpressAuth");
 
 admin.initializeApp();
 
-exports.aliexpressAuth = aliexpressAuth;
-exports.aliexpressOAuthCallback = aliexpressOAuthCallback;
+exports.importAliExpressProduct = importAliExpressProduct;
 exports.firebaseAuthCallback = firebaseAuthCallback;

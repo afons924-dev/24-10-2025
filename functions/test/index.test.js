@@ -217,3 +217,99 @@ describe('Cloud Functions: fulfillOrder', () => {
         expect(sessionDoc.delete.calledOnce).to.be.true;
     });
 });
+
+describe('Cloud Functions: _importAliExpressProductLogic', () => {
+    let aliexpressAuth;
+    let fetchStub;
+
+    beforeEach(() => {
+        fetchStub = sinon.stub();
+        // Use proxyquire to load the module with our fetch mock FIRST
+        aliexpressAuth = proxyquire('../src/aliexpressAuth', {
+            'node-fetch': fetchStub,
+        });
+
+        // THEN stub environment variables
+        sinon.stub(process, 'env').value({
+            ALIEXPRESS_APP_KEY: 'test_app_key',
+            ALIEXPRESS_APP_SECRET: 'test_app_secret',
+        });
+    });
+
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('should import and transform product data successfully for an admin user', async () => {
+        // --- Test Data ---
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { token: { isAdmin: true } } };
+        const mockApiResponse = {
+            aliexpress_ds_product_get_response: {
+                result: {
+                    ae_item_base_info_dto: {
+                        subject: 'Test Product Name',
+                        detail: 'Test Product Description'
+                    },
+                    ae_sku_dtos: [
+                        { offer_sale_price: '99.99' }
+                    ],
+                    ae_multimedia_info_dto: {
+                        image_urls: 'url1.jpg;url2.jpg'
+                    }
+                }
+            }
+        };
+
+        fetchStub.resolves({
+            json: () => Promise.resolve(mockApiResponse),
+        });
+
+        // --- Execute the function ---
+        const result = await aliexpressAuth._importAliExpressProductLogic(data, context);
+
+        // --- Assertions ---
+        expect(fetchStub.calledOnce).to.be.true;
+        const fetchUrl = fetchStub.firstCall.args[0];
+        expect(fetchUrl).to.include('product_id=1234567890');
+
+        expect(result).to.deep.equal({
+            name: 'Test Product Name',
+            description: 'Test Product Description',
+            price: 99.99,
+            images: ['url1.jpg', 'url2.jpg']
+        });
+    });
+
+    it('should throw a permission error if user is not an admin', async () => {
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { token: { isAdmin: false } } }; // Not an admin
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('Must be an administrative user to call this function.');
+        expect(fetchStub.notCalled).to.be.true;
+    });
+
+    it('should throw an error if the AliExpress API returns an error', async () => {
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { token: { isAdmin: true } } };
+        const mockErrorResponse = {
+            error_response: {
+                code: 20010000,
+                msg: 'API Error Message'
+            }
+        };
+
+        fetchStub.resolves({
+            json: () => Promise.resolve(mockErrorResponse),
+        });
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('AliExpress API Error: API Error Message');
+    });
+
+    it('should throw an error for an invalid URL', async () => {
+        const data = { url: 'https://www.invalid-url.com' };
+        const context = { auth: { token: { isAdmin: true } } };
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('Invalid AliExpress URL format.');
+    });
+});
