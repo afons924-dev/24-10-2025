@@ -251,7 +251,7 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
                         subject: 'Test Product Name',
                         detail: 'Test Product Description'
                     },
-                    ae_sku_dtos: [
+                    ae_item_sku_info_dtos: [
                         { offer_sale_price: '99.99' }
                     ],
                     ae_multimedia_info_dto: {
