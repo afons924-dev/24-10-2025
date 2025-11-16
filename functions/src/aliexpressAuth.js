@@ -151,7 +151,9 @@ const _importAliExpressProductLogic = async (data, context) => {
     // 3. Get Access Token and Prepare API Request
     const accessToken = await getValidAccessToken();
     const APP_KEY = process.env.ALIEXPRESS_APP_KEY.trim();
+    const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
     const API_URL = "https://api-sg.aliexpress.com/sync";
+    const API_PATH = '/sync'; // As per AliExpress documentation for TOP protocol
 
     const params = {
         access_token: accessToken,
@@ -164,7 +166,16 @@ const _importAliExpressProductLogic = async (data, context) => {
         v: '2.0',
     };
 
-    // 4. Make the API Call
+    // 4. Calculate Signature
+    const sortedKeys = Object.keys(params).sort();
+    const signString = sortedKeys.map(key => `${key}${params[key]}`).join('');
+
+    const hmac = crypto.createHmac('sha256', APP_SECRET);
+    hmac.update(signString);
+    const sign = hmac.digest('hex').toUpperCase();
+    params.sign = sign;
+
+    // 5. Make the API Call
     const queryString = new URLSearchParams(params).toString();
 
     try {
