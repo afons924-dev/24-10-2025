@@ -1455,8 +1455,8 @@ const app = {
                 aliExpressUrlInput.value = url;
                 this.showLoading();
                 try {
-                    const scrapeAliExpress = httpsCallable(this.functions, 'scrapeAliExpress');
-                    const result = await scrapeAliExpress({ url });
+                    const importAliExpressProduct = httpsCallable(this.functions, 'importAliExpressProduct');
+                    const result = await importAliExpressProduct({ url });
                     const product = result.data;
 
                     if (product.error) {
