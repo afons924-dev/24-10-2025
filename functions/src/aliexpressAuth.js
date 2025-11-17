@@ -174,51 +174,38 @@ const _importAliExpressProductLogic = async (data, context) => {
     const accessToken = await getValidAccessToken();
     const APP_KEY = process.env.ALIEXPRESS_APP_KEY.trim();
     const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
-    const API_URL = "https://api-sg.aliexpress.com/rest";
-    const API_PATH = '/rest'; // Path used for signing
+    const API_URL = "https://api-sg.aliexpress.com/sync";
 
-    // 4. Separate System and Business Parameters
-    const systemParams = {
-        app_key: APP_KEY,
+    // 4. Combine All Parameters for a GET request
+    const params = {
         access_token: accessToken,
+        app_key: APP_KEY,
         sign_method: 'sha256',
         format: 'json',
         v: '2.0',
         timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '), // YYYY-MM-DD HH:MM:SS format
         method: 'aliexpress.ds.product.get',
-    };
-
-    const businessParams = {
         product_id: productId,
-        // Add other business-specific parameters here if needed
+        ship_to_country: 'US', // Add required parameter, defaulting to US
     };
 
     // 5. Calculate Signature
-    const allParams = { ...systemParams, ...businessParams };
-    const sortedKeys = Object.keys(allParams).sort();
+    const sortedKeys = Object.keys(params).sort();
     let signString = '';
     sortedKeys.forEach(key => {
-        signString += key + allParams[key];
+        signString += key + params[key];
     });
-
     const hmac = crypto.createHmac('sha256', APP_SECRET);
     hmac.update(signString);
-    const sign = hmac.digest('hex').toUpperCase();
-    systemParams.sign = sign;
+    params.sign = hmac.digest('hex').toUpperCase();
+
 
     // 6. Make the API Call
-    const queryString = new URLSearchParams(systemParams).toString();
+    const queryString = new URLSearchParams(params).toString();
     const requestUrl = `${API_URL}?${queryString}`;
-    const requestBody = new URLSearchParams(businessParams).toString();
 
     try {
-        const response = await fetch(requestUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
-            },
-            body: requestBody,
-        });
+        const response = await fetch(requestUrl); // Default is GET
         const data = await response.json();
 
         if (data.error_response) {

@@ -275,7 +275,7 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         clock.restore();
     });
 
-    it('should construct a valid signed POST request to the AliExpress API', async () => {
+    it('should construct a valid signed GET request to the AliExpress API', async () => {
         const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
         const context = { auth: { uid: 'admin_user_id' } };
         const mockApiResponse = { aliexpress_ds_product_get_response: { result: { ae_item_base_info_dto: { subject: 'Test' }, ae_item_sku_info_dtos: [], ae_multimedia_info_dto: { image_urls: '' } } } };
@@ -288,15 +288,11 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         expect(fetchStub.calledOnce).to.be.true;
         const [requestUrl, requestOptions] = fetchStub.firstCall.args;
 
-        // 1. Assert POST method and headers
-        expect(requestOptions.method).to.equal('POST');
-        expect(requestOptions.headers['Content-Type']).to.equal('application/x-www-form-urlencoded;charset=utf-8');
+        // 1. Assert GET method (or undefined, as it's the default)
+        expect(requestOptions).to.be.undefined;
 
-        // 2. Assert body contains business parameters
-        expect(requestOptions.body).to.equal('product_id=1234567890');
-
-        // 3. Manually calculate expected signature for verification
-        const systemParams = {
+        // 2. Manually calculate expected signature for verification
+        const params = {
             app_key: APP_KEY,
             access_token: ACCESS_TOKEN,
             sign_method: 'sha256',
@@ -304,19 +300,23 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
             v: '2.0',
             timestamp: '2023-10-27 10:00:00',
             method: 'aliexpress.ds.product.get',
+            product_id: '1234567890',
+            ship_to_country: 'US',
         };
-        const businessParams = { product_id: '1234567890' };
-        const allParams = { ...systemParams, ...businessParams };
-        const sortedKeys = Object.keys(allParams).sort();
+        const sortedKeys = Object.keys(params).sort();
         let signString = '';
-        sortedKeys.forEach(key => { signString += key + allParams[key]; });
+        sortedKeys.forEach(key => { signString += key + params[key]; });
         const expectedSign = crypto.createHmac('sha256', APP_SECRET).update(signString).digest('hex').toUpperCase();
 
-        // 4. Assert URL contains system parameters and correct signature
+        // 3. Assert URL contains all parameters and correct signature
         const url = new URL(requestUrl);
+        expect(url.origin).to.equal('https://api-sg.aliexpress.com');
+        expect(url.pathname).to.equal('/sync');
         expect(url.searchParams.get('sign')).to.equal(expectedSign);
         expect(url.searchParams.get('app_key')).to.equal(APP_KEY);
         expect(url.searchParams.get('timestamp')).to.equal('2023-10-27 10:00:00');
+        expect(url.searchParams.get('product_id')).to.equal('1234567890');
+        expect(url.searchParams.get('ship_to_country')).to.equal('US');
     });
 
 
