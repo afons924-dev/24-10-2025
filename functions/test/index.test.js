@@ -336,6 +336,26 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
             .to.be.rejectedWith('The AliExpress API returned a non-200 status: 401 Unauthorized. Body: Invalid Signature');
     });
 
+    it('should throw an error if AliExpress secrets are missing', async () => {
+        process.env.ALIEXPRESS_APP_SECRET = ''; // Unset a secret
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { uid: 'admin_user_id' } };
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context))
+            .to.be.rejectedWith('The server is missing required configuration for AliExpress integration.');
+    });
+
+    it('should throw an error if the Firestore token document is malformed', async () => {
+        // Mock a broken token document
+        const malformedToken = { accessToken: 'some_token' }; // Missing expiresAt and refreshToken
+        dbStub.collection.withArgs('aliexpress_tokens').returns({ doc: () => docStub(malformedToken) });
+
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { uid: 'admin_user_id' } };
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context))
+            .to.be.rejectedWith('Firestore token document is malformed or missing required fields.');
+    });
 
     it('should throw a permission error if user is not an admin', async () => {
         // Override the default user profile mock for this specific test

@@ -126,17 +126,32 @@ const refreshAliExpressToken = async () => {
 
 const getValidAccessToken = async () => {
     const db = admin.firestore();
-    const tokenDoc = await db.collection('aliexpress_tokens').doc('user_specific_id').get();
+    const tokenDocRef = db.collection('aliexpress_tokens').doc('user_specific_id');
+    const tokenDoc = await tokenDocRef.get();
 
     if (!tokenDoc.exists) {
-        throw new HttpsError('permission-denied', 'AliExpress token not found. Please authorize the application first.');
+        throw new HttpsError('not-found', 'AliExpress token document not found in Firestore. Please authorize the application first.');
     }
 
-    const { accessToken, expiresAt } = tokenDoc.data();
+    const tokenData = tokenDoc.data();
+    if (!tokenData || !tokenData.accessToken || !tokenData.expiresAt || !tokenData.refreshToken) {
+        throw new HttpsError('invalid-argument', 'Firestore token document is malformed or missing required fields.');
+    }
+
+    const { accessToken, expiresAt } = tokenData;
 
     if (Date.now() >= expiresAt) {
         console.log("Access token expired, refreshing...");
-        return await refreshAliExpressToken();
+        try {
+            return await refreshAliExpressToken();
+        } catch (error) {
+            console.error("Failed to refresh AliExpress token:", error);
+            // Re-throw specific error from refresh function, or a generic one if it's an unexpected error
+            if (error instanceof HttpsError) {
+                throw error;
+            }
+            throw new HttpsError('internal', `An unexpected error occurred during token refresh: ${error.message}`);
+        }
     }
 
     return accessToken;
@@ -145,6 +160,12 @@ const getValidAccessToken = async () => {
 
 // Internal logic function, easier to test
 const _importAliExpressProductLogic = async (data, context) => {
+    // 0. Verify Secrets are present
+    if (!process.env.ALIEXPRESS_APP_KEY || !process.env.ALIEXPRESS_APP_SECRET) {
+        console.error("Missing AliExpress App Key or Secret in function configuration.");
+        throw new HttpsError('internal', 'The server is missing required configuration for AliExpress integration.');
+    }
+
     // 1. Check for admin privileges
     if (!context.auth) {
         throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
