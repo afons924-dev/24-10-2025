@@ -20,3 +20,4 @@ yarn-debug.log*
 yarn-error.log*
 functions/node_modules
 server.log
+functions/node_modules

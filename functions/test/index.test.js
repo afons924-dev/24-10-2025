@@ -24,6 +24,9 @@ const collectionStub = (data) => ({
     add: sinon.stub().resolves(docStub({ id: 'new-mail-id' })),
 });
 
+// Mock for the cors module
+const corsStub = sinon.stub().callsFake((req, res, callback) => callback());
+
 
 describe('Cloud Functions: fulfillOrder', () => {
     let functions;
@@ -63,6 +66,7 @@ describe('Cloud Functions: fulfillOrder', () => {
         // Use proxyquire to load the functions file with our mocks
         functions = proxyquire('../index', {
             'firebase-admin': adminStub,
+            'cors': () => corsStub,
         });
     });
 
@@ -227,6 +231,7 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         // Use proxyquire to load the module with our fetch mock FIRST
         aliexpressAuth = proxyquire('../src/aliexpressAuth', {
             'node-fetch': fetchStub,
+            'cors': () => corsStub,
         });
 
         // THEN stub environment variables

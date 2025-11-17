@@ -4,25 +4,35 @@ const { onRequest } = require("firebase-functions/v2/https");
 const crypto = require('crypto');
 const fetch = require('node-fetch');
 const admin = require("firebase-admin");
-const cors = require('cors')({origin: true});
 
 // Redirects the user to AliExpress to authorize the application.
 const aliexpressAuthRedirect = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY"] }, (req, res) => {
-    cors(req, res, () => {
-        const appkey = process.env.ALIEXPRESS_APP_KEY;
-        const redirectUri = `https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthCallback`;
-        const authUrl = `https://api-sg.aliexpress.com/oauth/authorize?response_type=code&force_auth=true&redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${appkey}`;
-        res.redirect(authUrl);
-    });
+    res.set('Access-Control-Allow-Origin', '*');
+    if (req.method === 'OPTIONS') {
+        res.set('Access-Control-Allow-Methods', 'GET');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+        res.status(204).send('');
+        return;
+    }
+    const appkey = process.env.ALIEXPRESS_APP_KEY;
+    const redirectUri = `https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthCallback`;
+    const authUrl = `https://api-sg.aliexpress.com/oauth/authorize?response_type=code&force_auth=true&redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${appkey}`;
+    res.redirect(authUrl);
 });
 
 // Exchanges the authorization code for an access token and refresh token.
-const aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, (req, res) => {
-    cors(req, res, async () => {
-        const { code } = req.query;
-        if (!code) {
-            return res.status(400).send("Authorization code is missing.");
-        }
+const aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    if (req.method === 'OPTIONS') {
+        res.set('Access-Control-Allow-Methods', 'GET');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+        res.status(204).send('');
+        return;
+    }
+    const { code } = req.query;
+    if (!code) {
+        return res.status(400).send("Authorization code is missing.");
+    }
 
     const APP_KEY = process.env.ALIEXPRESS_APP_KEY.trim();
     const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
@@ -61,7 +71,6 @@ const aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["AL
         console.error("Callback Error:", error);
         res.status(500).send("An unexpected error occurred during authentication.");
     }
-    });
 });
 
 // Refreshes the AliExpress access token using the stored refresh token.
@@ -137,7 +146,15 @@ const getValidAccessToken = async () => {
 // Internal logic function, easier to test
 const _importAliExpressProductLogic = async (data, context) => {
     // 1. Check for admin privileges
-    if (!context.auth || !context.auth.token.isAdmin) {
+    if (!context.auth) {
+        throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+
+    const db = admin.firestore();
+    const userProfileRef = db.collection('users').doc(context.auth.uid);
+    const userProfileSnap = await userProfileRef.get();
+
+    if (!userProfileSnap.exists() || !userProfileSnap.data().isAdmin) {
         throw new HttpsError('permission-denied', 'Must be an administrative user to call this function.');
     }
 
