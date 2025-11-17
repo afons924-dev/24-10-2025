@@ -178,15 +178,15 @@ const _importAliExpressProductLogic = async (data, context) => {
 
     // 4. Combine All Parameters for a GET request
     const params = {
-        access_token: accessToken,
+        session: accessToken, // Correct parameter name is 'session' per logs
         app_key: APP_KEY,
         sign_method: 'sha256',
         format: 'json',
         v: '2.0',
-        timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '), // YYYY-MM-DD HH:MM:SS format
+        timestamp: Date.now(), // Correct timestamp format is Unix ms per logs
         method: 'aliexpress.ds.product.get',
         product_id: productId,
-        ship_to_country: 'US', // Add required parameter, defaulting to US
+        ship_to_country: 'US',
     };
 
     // 5. Calculate Signature
@@ -206,6 +206,13 @@ const _importAliExpressProductLogic = async (data, context) => {
 
     try {
         const response = await fetch(requestUrl); // Default is GET
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error(`AliExpress API request failed with status ${response.status}:`, errorBody);
+            throw new HttpsError('internal', `The AliExpress API returned a non-200 status: ${response.status} ${response.statusText}. Body: ${errorBody}`);
+        }
+
         const data = await response.json();
 
         if (data.error_response) {

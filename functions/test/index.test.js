@@ -280,25 +280,26 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         const context = { auth: { uid: 'admin_user_id' } };
         const mockApiResponse = { aliexpress_ds_product_get_response: { result: { ae_item_base_info_dto: { subject: 'Test' }, ae_item_sku_info_dtos: [], ae_multimedia_info_dto: { image_urls: '' } } } };
 
-        fetchStub.resolves({ json: () => Promise.resolve(mockApiResponse) });
+        fetchStub.resolves({
+            ok: true,
+            json: () => Promise.resolve(mockApiResponse),
+        });
 
         await aliexpressAuth._importAliExpressProductLogic(data, context);
 
         // --- Assertions for Request Structure & Signature ---
         expect(fetchStub.calledOnce).to.be.true;
-        const [requestUrl, requestOptions] = fetchStub.firstCall.args;
+        const [requestUrl] = fetchStub.firstCall.args;
 
-        // 1. Assert GET method (or undefined, as it's the default)
-        expect(requestOptions).to.be.undefined;
-
-        // 2. Manually calculate expected signature for verification
+        // 1. Manually calculate expected signature for verification
+        const timestamp = new Date("2023-10-27T10:00:00Z").getTime();
         const params = {
             app_key: APP_KEY,
-            access_token: ACCESS_TOKEN,
+            session: ACCESS_TOKEN,
             sign_method: 'sha256',
             format: 'json',
             v: '2.0',
-            timestamp: '2023-10-27 10:00:00',
+            timestamp,
             method: 'aliexpress.ds.product.get',
             product_id: '1234567890',
             ship_to_country: 'US',
@@ -308,15 +309,31 @@ describe('Cloud Functions: _importAliExpressProductLogic', () => {
         sortedKeys.forEach(key => { signString += key + params[key]; });
         const expectedSign = crypto.createHmac('sha256', APP_SECRET).update(signString).digest('hex').toUpperCase();
 
-        // 3. Assert URL contains all parameters and correct signature
+        // 2. Assert URL contains all parameters and correct signature
         const url = new URL(requestUrl);
         expect(url.origin).to.equal('https://api-sg.aliexpress.com');
         expect(url.pathname).to.equal('/sync');
         expect(url.searchParams.get('sign')).to.equal(expectedSign);
         expect(url.searchParams.get('app_key')).to.equal(APP_KEY);
-        expect(url.searchParams.get('timestamp')).to.equal('2023-10-27 10:00:00');
+        expect(url.searchParams.get('session')).to.equal(ACCESS_TOKEN);
+        expect(url.searchParams.get('timestamp')).to.equal(timestamp.toString());
         expect(url.searchParams.get('product_id')).to.equal('1234567890');
         expect(url.searchParams.get('ship_to_country')).to.equal('US');
+    });
+
+    it('should throw an HttpsError with the body text if the API response is not ok', async () => {
+        const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
+        const context = { auth: { uid: 'admin_user_id' } };
+
+        fetchStub.resolves({
+            ok: false,
+            status: 401,
+            statusText: 'Unauthorized',
+            text: () => Promise.resolve('Invalid Signature'),
+        });
+
+        await expect(aliexpressAuth._importAliExpressProductLogic(data, context))
+            .to.be.rejectedWith('The AliExpress API returned a non-200 status: 401 Unauthorized. Body: Invalid Signature');
     });
 
 
