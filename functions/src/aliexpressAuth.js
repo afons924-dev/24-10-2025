@@ -17,7 +17,7 @@ const aliexpressAuthRedirect = onRequest({ region: 'europe-west3', secrets: ["AL
 });
 
 // Exchanges the authorization code for an access token and refresh token.
-const aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, async (req, res) => {
+const aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, (req, res) => {
     cors(req, res, async () => {
         const { code } = req.query;
         if (!code) {
