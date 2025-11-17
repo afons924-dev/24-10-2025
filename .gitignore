@@ -21,3 +21,4 @@ yarn-error.log*
 functions/node_modules
 server.log
 functions/node_modules
+/functions/node_modules

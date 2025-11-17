@@ -174,34 +174,51 @@ const _importAliExpressProductLogic = async (data, context) => {
     const accessToken = await getValidAccessToken();
     const APP_KEY = process.env.ALIEXPRESS_APP_KEY.trim();
     const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET.trim();
-    const API_URL = "https://api-sg.aliexpress.com/sync";
-    const API_PATH = '/sync'; // As per AliExpress documentation for TOP protocol
+    const API_URL = "https://api-sg.aliexpress.com/rest";
+    const API_PATH = '/rest'; // Path used for signing
 
-    const params = {
-        access_token: accessToken,
+    // 4. Separate System and Business Parameters
+    const systemParams = {
         app_key: APP_KEY,
-        format: 'json',
-        method: 'aliexpress.ds.product.get',
-        product_id: productId,
+        access_token: accessToken,
         sign_method: 'sha256',
-        timestamp: Date.now(),
+        format: 'json',
         v: '2.0',
+        timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '), // YYYY-MM-DD HH:MM:SS format
+        method: 'aliexpress.ds.product.get',
     };
 
-    // 4. Calculate Signature
-    const sortedKeys = Object.keys(params).sort();
-    const signString = sortedKeys.map(key => `${key}${params[key]}`).join('');
+    const businessParams = {
+        product_id: productId,
+        // Add other business-specific parameters here if needed
+    };
+
+    // 5. Calculate Signature
+    const allParams = { ...systemParams, ...businessParams };
+    const sortedKeys = Object.keys(allParams).sort();
+    let signString = '';
+    sortedKeys.forEach(key => {
+        signString += key + allParams[key];
+    });
 
     const hmac = crypto.createHmac('sha256', APP_SECRET);
     hmac.update(signString);
     const sign = hmac.digest('hex').toUpperCase();
-    params.sign = sign;
+    systemParams.sign = sign;
 
-    // 5. Make the API Call
-    const queryString = new URLSearchParams(params).toString();
+    // 6. Make the API Call
+    const queryString = new URLSearchParams(systemParams).toString();
+    const requestUrl = `${API_URL}?${queryString}`;
+    const requestBody = new URLSearchParams(businessParams).toString();
 
     try {
-        const response = await fetch(`${API_URL}?${queryString}`);
+        const response = await fetch(requestUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            },
+            body: requestBody,
+        });
         const data = await response.json();
 
         if (data.error_response) {

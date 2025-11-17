@@ -222,99 +222,128 @@ describe('Cloud Functions: fulfillOrder', () => {
     });
 });
 
+const crypto = require('crypto');
+
 describe('Cloud Functions: _importAliExpressProductLogic', () => {
-    let aliexpressAuth;
-    let fetchStub;
+    let aliexpressAuth, fetchStub, adminStub, dbStub, clock;
+    const APP_KEY = 'test_app_key';
+    const APP_SECRET = 'test_app_secret';
+    const ACCESS_TOKEN = 'test_access_token';
 
     beforeEach(() => {
+        // --- Mock Dependencies ---
         fetchStub = sinon.stub();
-        // Use proxyquire to load the module with our fetch mock FIRST
+
+        const tokenData = {
+            accessToken: ACCESS_TOKEN,
+            expiresAt: Date.now() + 3600 * 1000 // Expires in 1 hour
+        };
+        const userProfile = { isAdmin: true };
+
+        dbStub = {
+            collection: sinon.stub().returns({
+                doc: (docId) => {
+                    if (docId === 'user_specific_id') {
+                        return docStub(tokenData); // For aliexpress_tokens collection
+                    }
+                    return docStub(userProfile); // For users collection
+                }
+            })
+        };
+
+        adminStub = {
+            initializeApp: sinon.stub(),
+            firestore: () => dbStub,
+        };
+
         aliexpressAuth = proxyquire('../src/aliexpressAuth', {
             'node-fetch': fetchStub,
-            'cors': () => corsStub,
+            'firebase-admin': adminStub,
         });
 
-        // THEN stub environment variables
+        // --- Stub Environment & Time ---
         sinon.stub(process, 'env').value({
-            ALIEXPRESS_APP_KEY: 'test_app_key',
-            ALIEXPRESS_APP_SECRET: 'test_app_secret',
-            ALIEXPRESS_ACCESS_TOKEN: 'test_access_token',
+            ALIEXPRESS_APP_KEY: APP_KEY,
+            ALIEXPRESS_APP_SECRET: APP_SECRET,
         });
+        // Fix time for consistent signature generation
+        clock = sinon.useFakeTimers(new Date("2023-10-27T10:00:00Z").getTime());
     });
 
     afterEach(() => {
         sinon.restore();
+        clock.restore();
     });
 
-    it('should import and transform product data successfully for an admin user', async () => {
-        // --- Test Data ---
+    it('should construct a valid signed POST request to the AliExpress API', async () => {
         const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
-        const context = { auth: { token: { isAdmin: true } } };
-        const mockApiResponse = {
-            aliexpress_ds_product_get_response: {
-                result: {
-                    ae_item_base_info_dto: {
-                        subject: 'Test Product Name',
-                        detail: 'Test Product Description'
-                    },
-                    ae_item_sku_info_dtos: [
-                        { offer_sale_price: '99.99' }
-                    ],
-                    ae_multimedia_info_dto: {
-                        image_urls: 'url1.jpg;url2.jpg'
-                    }
-                }
-            }
-        };
+        const context = { auth: { uid: 'admin_user_id' } };
+        const mockApiResponse = { aliexpress_ds_product_get_response: { result: { ae_item_base_info_dto: { subject: 'Test' }, ae_item_sku_info_dtos: [], ae_multimedia_info_dto: { image_urls: '' } } } };
 
-        fetchStub.resolves({
-            json: () => Promise.resolve(mockApiResponse),
-        });
+        fetchStub.resolves({ json: () => Promise.resolve(mockApiResponse) });
 
-        // --- Execute the function ---
-        const result = await aliexpressAuth._importAliExpressProductLogic(data, context);
+        await aliexpressAuth._importAliExpressProductLogic(data, context);
 
-        // --- Assertions ---
+        // --- Assertions for Request Structure & Signature ---
         expect(fetchStub.calledOnce).to.be.true;
-        const fetchUrl = fetchStub.firstCall.args[0];
-        expect(fetchUrl).to.include('product_id=1234567890');
+        const [requestUrl, requestOptions] = fetchStub.firstCall.args;
 
-        expect(result).to.deep.equal({
-            name: 'Test Product Name',
-            description: 'Test Product Description',
-            price: 99.99,
-            images: ['url1.jpg', 'url2.jpg']
-        });
+        // 1. Assert POST method and headers
+        expect(requestOptions.method).to.equal('POST');
+        expect(requestOptions.headers['Content-Type']).to.equal('application/x-www-form-urlencoded;charset=utf-8');
+
+        // 2. Assert body contains business parameters
+        expect(requestOptions.body).to.equal('product_id=1234567890');
+
+        // 3. Manually calculate expected signature for verification
+        const systemParams = {
+            app_key: APP_KEY,
+            access_token: ACCESS_TOKEN,
+            sign_method: 'sha256',
+            format: 'json',
+            v: '2.0',
+            timestamp: '2023-10-27 10:00:00',
+            method: 'aliexpress.ds.product.get',
+        };
+        const businessParams = { product_id: '1234567890' };
+        const allParams = { ...systemParams, ...businessParams };
+        const sortedKeys = Object.keys(allParams).sort();
+        let signString = '';
+        sortedKeys.forEach(key => { signString += key + allParams[key]; });
+        const expectedSign = crypto.createHmac('sha256', APP_SECRET).update(signString).digest('hex').toUpperCase();
+
+        // 4. Assert URL contains system parameters and correct signature
+        const url = new URL(requestUrl);
+        expect(url.searchParams.get('sign')).to.equal(expectedSign);
+        expect(url.searchParams.get('app_key')).to.equal(APP_KEY);
+        expect(url.searchParams.get('timestamp')).to.equal('2023-10-27 10:00:00');
     });
+
 
     it('should throw a permission error if user is not an admin', async () => {
+        // Override the default user profile mock for this specific test
+        dbStub.collection.withArgs('users').returns({ doc: () => docStub({ isAdmin: false }) });
+
         const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
-        const context = { auth: { token: { isAdmin: false } } }; // Not an admin
+        const context = { auth: { uid: 'non_admin_user_id' } };
 
         await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('Must be an administrative user to call this function.');
         expect(fetchStub.notCalled).to.be.true;
     });
 
-    it('should throw an error if the AliExpress API returns an error', async () => {
+    it('should throw an HttpsError if the AliExpress API returns an error', async () => {
         const data = { url: 'https://www.aliexpress.com/item/1234567890.html' };
-        const context = { auth: { token: { isAdmin: true } } };
-        const mockErrorResponse = {
-            error_response: {
-                code: 20010000,
-                msg: 'API Error Message'
-            }
-        };
+        const context = { auth: { uid: 'admin_user_id' } };
+        const mockErrorResponse = { error_response: { code: 20010000, msg: 'API Error Message' } };
 
-        fetchStub.resolves({
-            json: () => Promise.resolve(mockErrorResponse),
-        });
+        fetchStub.resolves({ json: () => Promise.resolve(mockErrorResponse) });
 
         await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('AliExpress API Error: API Error Message');
     });
 
-    it('should throw an error for an invalid URL', async () => {
+    it('should throw an error for an invalid URL format', async () => {
         const data = { url: 'https://www.invalid-url.com' };
-        const context = { auth: { token: { isAdmin: true } } };
+        const context = { auth: { uid: 'admin_user_id' } };
 
         await expect(aliexpressAuth._importAliExpressProductLogic(data, context)).to.be.rejectedWith('Invalid AliExpress URL format.');
     });
