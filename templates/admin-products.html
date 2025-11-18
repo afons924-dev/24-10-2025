@@ -1,13 +1,11 @@
-<div class="flex flex-col lg:flex-row gap-12">
-<div class="w-full lg:w-1/2">
 <div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
 <h2 class="text-2xl font-bold mb-6" id="admin-form-title" data-i18n="addProductTitle">Adicionar Novo Produto</h2>
 <form id="admin-product-form" novalidate="">
-<input id="product-id" name="id" type="hidden"/><input id="product-image-url" name="imageUrl" type="hidden"/>
+<input id="product-id" name="id" type="hidden">
 <div class="space-y-4">
 <div>
 <label class="block text-gray-300 mb-2" for="product-name" data-i18n="productNameLabel">Nome do Produto</label>
-<input class="w-full p-3 rounded-md form-input" id="product-name" name="name" required="" type="text"/>
+<input class="w-full p-3 rounded-md form-input" id="product-name" name="name" required="" type="text">
 <p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
 </div>
 <div>
@@ -17,12 +15,12 @@
 </div>
 <div>
 <label class="block text-gray-300 mb-2" for="product-price" data-i18n="priceLabel">Preço (€)</label>
-<input class="w-full p-3 rounded-md form-input" id="product-price" name="price" required="" step="0.01" type="number"/>
+<input class="w-full p-3 rounded-md form-input" id="product-price" name="price" required="" step="0.01" type="number">
 <p class="error-message">Insira um preço válido.</p>
 </div>
 <div>
 <label class="block text-gray-300 mb-2" for="product-category" data-i18n="categoryLabel">Categoria</label>
-<input class="w-full p-3 rounded-md form-input" id="product-category" name="category" placeholder="Ex: para-ela, para-ele" required="" type="text" data-i18n-placeholder="categoryPlaceholder"/>
+<input class="w-full p-3 rounded-md form-input" id="product-category" name="category" placeholder="Ex: para-ela, para-ele" required="" type="text" data-i18n-placeholder="categoryPlaceholder">
 <p class="error-message" data-i18n="fieldRequired">Campo obrigatório.</p>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -49,15 +47,33 @@
     <input class="w-full p-3 rounded-md form-input" id="product-tags" name="tags" type="text" placeholder="Ex: silencioso, potente, recarregável">
 </div>
 <div>
-<label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagem do Produto</label>
-<img alt="Pré-visualização da imagem" class="w-24 h-24 object-cover rounded-md mb-2 hidden" id="product-image-preview" loading="lazy" data-i18n-alt="imagePreviewAlt"/>
-<input accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-black hover:file:bg-pink-400" id="product-image-file" name="imageFile" type="file"/>
-<p class="text-xs text-gray-500 mt-1" data-i18n="changeImageHint">Selecione um novo ficheiro para alterar a imagem atual.</p>
-<p class="error-message" data-i18n="newProductImageRequired">Uma imagem é obrigatória para novos produtos.</p>
+    <label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagem do Produto</label>
+    <div id="drop-zone" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md cursor-pointer hover:border-accent">
+        <div class="space-y-1 text-center">
+            <svg aria-hidden="true" class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewbox="0 0 48 48">
+                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+            </svg>
+            <div class="flex text-sm text-gray-400">
+                <label class="relative cursor-pointer bg-gray-800 rounded-md font-medium text-accent hover:text-pink-400 focus-within:outline-none" for="product-image-file">
+                    <span>Carregue um ficheiro</span>
+                    <input class="sr-only" id="product-image-file" name="imageFile" type="file" multiple="">
+                </label>
+                <p class="pl-1">ou arraste e solte</p>
+            </div>
+            <p class="text-xs text-gray-500">PNG, JPG, GIF até 2MB</p>
+        </div>
+    </div>
+    <div id="image-gallery-preview" class="mt-4 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-4"></div>
 </div>
 <div class="flex items-center">
-<input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox"/>
-<label class="ml-2 text-gray-300" for="product-show-urgency" data-i18n="showUrgencyLabel">Mostrar mensagem de "Poucas unidades!"</label>
+    <input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox">
+    <label class="ml-2 text-gray-300" for="product-show-urgency" data-i18n="showUrgencyLabel">Mostrar mensagem de "Poucas unidades!"</label>
+</div>
+<div class="mb-4">
+    <label for="product-aliexpress-url" class="block text-gray-300 mb-2">URL do AliExpress (Opcional)</label>
+    <input type="url" id="product-aliexpress-url" name="aliexpressUrl" class="w-full p-3 rounded-md form-input" placeholder="https://www.aliexpress.com/item/...">
+</div>
+<div id="aliexpress-integration-section" class="mt-6 pt-6 border-t border-gray-700">
 </div>
 </div>
 <div class="mt-6 flex gap-4">
@@ -66,11 +82,9 @@
 </div>
 </form>
 </div>
-</div>
-<div class="w-full lg:w-1/2">
+<div class="w-full lg:w-3/4 mt-8 lg:mt-0">
 <div class="bg-primary p-6 rounded-lg shadow-lg">
 <h2 class="text-2xl font-bold mb-6" data-i18n="productListTitle">Lista de Produtos</h2>
-<div class="space-y-4 max-h-[70vh] overflow-y-auto" id="admin-product-list"></div>
-</div>
+<div class="space-y-4 max-h-[100vh] overflow-y-auto" id="admin-product-list"></div>
 </div>
 </div>

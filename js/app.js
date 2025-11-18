@@ -1368,20 +1368,32 @@ const app = {
 
     async initAdminProductsPage() {
         const contentArea = document.getElementById('admin-content-area');
-        if (!contentArea) return;
+        if (!contentArea) return; // Should not happen if admin.html is loaded
+
         const templateNode = await this.getTemplate('admin-products');
-        if (!templateNode) {
-            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo.</p>';
+
+        if (templateNode) {
+            contentArea.innerHTML = ''; // Clear previous content
+            while (templateNode.firstChild) {
+                contentArea.appendChild(templateNode.firstChild);
+            }
+        } else {
+            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo dos produtos.</p>';
             return;
         }
-        contentArea.innerHTML = templateNode.innerHTML;
 
         this.renderAdminProductList();
         this.clearAdminForm(); // Also initializes image arrays and gallery
 
         const form = document.getElementById('admin-product-form');
-        form.addEventListener('submit', (e) => this.handleAdminFormSubmit(e));
-        document.getElementById('clear-form-btn').addEventListener('click', () => this.clearAdminForm());
+        if (form) {
+            form.addEventListener('submit', (e) => this.handleAdminFormSubmit(e));
+        }
+
+        const clearBtn = document.getElementById('clear-form-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => this.clearAdminForm());
+        }
 
         // Image Upload Logic
         const dropZone = document.getElementById('drop-zone');
@@ -1573,12 +1585,17 @@ const app = {
     async initAdminOrdersPage() {
         const contentArea = document.getElementById('admin-content-area');
         if (!contentArea) return;
+
         const templateNode = await this.getTemplate('admin-orders');
-        if (!templateNode) {
-            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo.</p>';
+        if (templateNode) {
+            contentArea.innerHTML = '';
+            while (templateNode.firstChild) {
+                contentArea.appendChild(templateNode.firstChild);
+            }
+        } else {
+            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo das encomendas.</p>';
             return;
         }
-        contentArea.innerHTML = templateNode.innerHTML;
 
         await this.loadAllOrders();
         this.renderAdminOrders();
@@ -1587,12 +1604,17 @@ const app = {
     async initAdminReviewsPage() {
         const contentArea = document.getElementById('admin-content-area');
         if (!contentArea) return;
+
         const templateNode = await this.getTemplate('admin-reviews');
-        if (!templateNode) {
-            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo.</p>';
+        if (templateNode) {
+            contentArea.innerHTML = '';
+            while (templateNode.firstChild) {
+                contentArea.appendChild(templateNode.firstChild);
+            }
+        } else {
+            contentArea.innerHTML = '<p class="text-red-500">Erro ao carregar o conteúdo das avaliações.</p>';
             return;
         }
-        contentArea.innerHTML = templateNode.innerHTML;
 
         this.showLoading();
         try {
@@ -1603,7 +1625,10 @@ const app = {
             this.renderPendingReviews(pendingReviews);
         } catch (error) {
             console.error("Erro ao carregar avaliações pendentes:", error);
-            document.getElementById('admin-reviews-list').innerHTML = '<p class="text-red-500">Não foi possível carregar as avaliações.</p>';
+            const listEl = document.getElementById('admin-reviews-list');
+            if (listEl) {
+                listEl.innerHTML = '<p class="text-red-500">Não foi possível carregar as avaliações.</p>';
+            }
         } finally {
             this.hideLoading();
         }
@@ -2350,10 +2375,13 @@ const app = {
             else if (input.type !== 'file' && !input.value.trim()) inputValid = false;
             if (!inputValid) { allValid = false; input.classList.add('invalid'); }
         });
-        if (form.id === 'admin-product-form') {
+        if (form && form.id === 'admin-product-form') {
             const fileInput = form.querySelector('#product-image-file');
             const isNewProduct = !form.querySelector('#product-id')?.value;
-            if (fileInput && isNewProduct && fileInput.files.length === 0) { allValid = false; fileInput.classList.add('invalid'); }
+            if (fileInput && isNewProduct && fileInput.files.length === 0) {
+                allValid = false;
+                fileInput.classList.add('invalid');
+            }
         }
         return allValid;
     },
