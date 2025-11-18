@@ -20,14 +20,16 @@ service cloud.firestore {
       allow read, update, write: if request.auth.uid == userId;
     }
 
-    // Allow users to manage their own orders, and admins to manage all orders.
+    // Allow users to read their own orders. Admins can read all orders.
     match /orders/{orderId} {
-      allow read, write: if (request.auth.uid != null && request.auth.token.isAdmin == true) || (request.auth.uid == resource.data.userId);
+        allow read: if request.auth.uid == resource.data.userId || (request.auth.uid != null && request.auth.token.isAdmin == true);
+        // Only admins can write (update/delete). Creation is done by backend.
+        allow write: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }
 
-    // Allow public read access to approved ratings, user access to their own, and admin access to all.
+    // Allow public read-only access to approved ratings, let users read their own, and let admins read all.
     match /product_ratings/{ratingId} {
-      allow read: if resource.data.status == 'approved' || (request.auth != null && (request.auth.uid == resource.data.userId || request.auth.token.isAdmin == true));
+      allow read: if resource.data.status == 'approved' || (request.auth != null && request.auth.uid == resource.data.userId) || (request.auth.uid != null && request.auth.token.isAdmin == true);
       allow create: if request.auth.uid != null;
       allow update, delete: if request.auth.uid != null && request.auth.token.isAdmin == true;
     }

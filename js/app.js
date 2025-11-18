@@ -1408,99 +1408,84 @@ const app = {
         dropZone.addEventListener('drop', (e) => this.handleAdminImageFiles(e.dataTransfer.files));
 
 
-        const aliExpressUrlInput = document.getElementById('aliexpress-url');
-// Certifique-se de inicializar Firebase antes disso:
-// firebase.initializeApp(firebaseConfig);
+        // Only run the AliExpress integration logic if the user is an admin
+        if (this.userProfile?.isAdmin) {
+            const aliexpressSection = document.getElementById('aliexpress-integration-section');
+            const urlParams = new URLSearchParams(window.location.search);
+            let statusMessage = '';
 
-
-
-if (aliExpressUrlInput) {
-    if (this.userProfile?.isAdmin) {
-        const aliexpressSection = document.getElementById('aliexpress-integration-section');
-        const urlParams = new URLSearchParams(window.location.search);
-        let statusMessage = '';
-
-        if (urlParams.has('aliexpress')) {
-            statusMessage = urlParams.get('aliexpress') === 'success'
-                ? '<p class="text-green-400">Conta AliExpress conectada com sucesso!</p>'
-                : '<p class="text-red-500">Erro ao conectar conta AliExpress.</p>';
-        }
-
-        aliexpressSection.innerHTML = `
-            <h3 class="text-xl font-bold mb-4">Integração AliExpress</h3>
-            ${statusMessage}
-            <p class="text-gray-400 mb-4">Conecte sua conta de vendedor AliExpress.</p>
-            <button class="btn btn-primary" id="connect-aliexpress-btn">Conectar AliExpress</button>
-            <div class="mt-4">
-                <input type="text" id="productIdInput" placeholder="ID do produto AliExpress" class="border px-2 py-1 mr-2">
-                <button class="btn btn-secondary" id="importProductBtn">Importar Produto</button>
-            </div>
-            <div id="productResult" class="mt-4"></div>
-        `;
-
-        document.getElementById('connect-aliexpress-btn').addEventListener('click', async () => {
-            if (!this.user) {
-                this.showToast('Faça login para conectar AliExpress.', 'error');
-                return;
+            if (urlParams.has('aliexpress')) {
+                statusMessage = urlParams.get('aliexpress') === 'success'
+                    ? '<p class="text-green-400">Conta AliExpress conectada com sucesso!</p>'
+                    : '<p class="text-red-500">Erro ao conectar conta AliExpress.</p>';
             }
-            this.showLoading();
-            try {
-                await this.user.getIdToken();
-                window.location.href = "https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthRedirect";
-            } catch (error) {
-                console.error(error);
-                this.showToast('Erro de autenticação.', 'error');
-            } finally { this.hideLoading(); }
-        });
 
-        document.getElementById('importProductBtn').addEventListener('click', async () => {
-            const productId = document.getElementById("productIdInput").value.trim();
-            if (!productId) return this.showToast("Informe o ID do produto AliExpress.", 'error');
+            aliexpressSection.innerHTML = `
+                <h3 class="text-xl font-bold mb-4">Integração AliExpress</h3>
+                ${statusMessage}
+                <p class="text-gray-400 mb-4">Conecte sua conta de vendedor AliExpress.</p>
+                <button class="btn btn-primary" id="connect-aliexpress-btn">Conectar AliExpress</button>
+                <div class="mt-4">
+                    <input type="text" id="productIdInput" placeholder="URL do produto AliExpress" class="border px-2 py-1 mr-2">
+                    <button class="btn btn-secondary" id="importProductBtn">Importar Produto</button>
+                </div>
+                <div id="productResult" class="mt-4"></div>
+            `;
 
-            const resultDiv = document.getElementById("productResult");
-            resultDiv.innerHTML = "Carregando...";
+            document.getElementById('connect-aliexpress-btn').addEventListener('click', async () => {
+                if (!this.user) {
+                    this.showToast('Faça login para conectar AliExpress.', 'error');
+                    return;
+                }
+                this.showLoading();
+                try {
+                    // The redirect to the cloud function that starts the OAuth flow
+                    window.location.href = `https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthRedirect?uid=${this.user.uid}`;
+                } catch (error) {
+                    console.error('Erro ao redirecionar para autenticação AliExpress:', error);
+                    this.showToast('Erro ao iniciar a conexão com o AliExpress.', 'error');
+                } finally {
+                    this.hideLoading();
+                }
+            });
 
-            try {
-                const functions = getFunctions(undefined, "europe-west3");
-                const importAliExpressProduct = httpsCallable(functions, "importAliExpressProduct");
-                const result = await importAliExpressProduct({ productId });
-                const product = result.data;
+            document.getElementById('importProductBtn').addEventListener('click', async () => {
+                const productUrl = document.getElementById("productIdInput").value.trim();
+                if (!productUrl) return this.showToast("Informe o URL do produto AliExpress.", 'error');
 
-                if (product.error) throw new Error(product.error);
+                const resultDiv = document.getElementById("productResult");
+                resultDiv.innerHTML = "Carregando...";
 
-                if (window.form) {
+                this.showLoading();
+                try {
+                    const result = await importAliExpressProduct({ productUrl });
+                    const product = result.data;
+
+                    if (product.error) throw new Error(product.error);
+
+                    // Populate the form with the imported data
                     form.name.value = product.name || '';
                     form.description.value = product.description || '';
                     form.price.value = product.price || 0;
+                    // Note: Other fields like category, stock, etc., might need manual input
+
+                    this.adminImageFiles = []; // Clear local files
+                    this.adminExistingImages = product.images || []; // Set imported images
+                    this.renderAdminImageGallery(); // Re-render the gallery
+
+                    this.showToast('Produto importado com sucesso! Preencha os campos restantes.');
+                    resultDiv.innerHTML = `<p class="text-green-400">Produto <strong>${product.name}</strong> carregado no formulário.</p>`;
+
+                } catch (error) {
+                    console.error("Erro ao importar produto do AliExpress:", error);
+                    this.showToast(`Erro ao importar: ${error.message}`, 'error');
+                    resultDiv.innerHTML = `<p class="text-red-500">Falha na importação: ${error.message}</p>`;
+                } finally {
+                    this.hideLoading();
                 }
-
-                this.adminImageFiles = [];
-                this.adminExistingImages = product.images || [];
-                if (this.renderAdminImageGallery) this.renderAdminImageGallery();
-
-                this.showToast('Produto importado com sucesso!');
-                resultDiv.innerHTML = `<pre>${JSON.stringify(product, null, 2)}</pre>`;
-            } catch (error) {
-                console.error(error);
-                this.showToast(`Erro ao importar: ${error.message}`, 'error');
-                resultDiv.innerHTML = '';
-            } finally { this.hideLoading(); }
-        });
-
-        aliExpressUrlInput.addEventListener('paste', async (e) => {
-            e.preventDefault();
-            const url = (e.clipboardData || window.clipboardData).getData('text');
-            if (!url || !url.includes('aliexpress.com')) {
-                this.showToast('Cole um URL válido AliExpress.', 'error');
-                return;
-            }
-            aliExpressUrlInput.value = url;
-        });
-    }
-}
-
-
-},
+            });
+        }
+    },
 
     handleAdminImageFiles(files) {
         const MAX_FILES = 10;
