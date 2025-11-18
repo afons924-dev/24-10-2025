@@ -48,12 +48,34 @@
     <label class="block text-gray-300 mb-2" for="product-tags">Tags (separadas por vírgula)</label>
     <input class="w-full p-3 rounded-md form-input" id="product-tags" name="tags" type="text" placeholder="Ex: silencioso, potente, recarregável">
 </div>
+<!-- Secção de Integração AliExpress -->
+<div class="space-y-4 p-4 border border-dashed border-gray-600 rounded-lg my-4">
+    <h3 class="text-xl font-bold text-accent">Importar do AliExpress</h3>
+    <input type="text" id="aliexpress-url" name="aliexpressUrl" class="w-full p-3 rounded-md form-input hidden" placeholder="URL do produto AliExpress (opcional)">
+    <div id="aliexpress-integration-section">
+        <div id="aliexpress-status-message" class="mb-4"></div>
+        <p class="text-gray-400 mb-4">Conecte sua conta de vendedor AliExpress para importar produtos.</p>
+        <button type="button" class="btn btn-primary" id="connect-aliexpress-btn">Conectar AliExpress</button>
+        <div class="mt-4">
+            <label for="productIdInput" class="block text-gray-300 mb-2">Importar por ID</label>
+            <div class="flex gap-2">
+                <input type="text" id="productIdInput" placeholder="ID do produto AliExpress" class="w-full p-3 rounded-md form-input">
+                <button type="button" class="btn btn-primary" id="importProductBtn">Importar</button>
+            </div>
+        </div>
+        <div id="productResult" class="mt-4 text-xs text-gray-400 max-h-48 overflow-auto"></div>
+    </div>
+</div>
 <div>
-<label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagem do Produto</label>
-<img alt="Pré-visualização da imagem" class="w-24 h-24 object-cover rounded-md mb-2 hidden" id="product-image-preview" loading="lazy" data-i18n-alt="imagePreviewAlt"/>
-<input accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-black hover:file:bg-pink-400" id="product-image-file" name="imageFile" type="file"/>
-<p class="text-xs text-gray-500 mt-1" data-i18n="changeImageHint">Selecione um novo ficheiro para alterar a imagem atual.</p>
-<p class="error-message" data-i18n="newProductImageRequired">Uma imagem é obrigatória para novos produtos.</p>
+    <label class="block text-gray-300 mb-2" for="product-image-file" data-i18n="productImageLabel">Imagens do Produto</label>
+    <!-- Este div age como a área clicável. Ele tem o ID que o JS está à procura. -->
+    <div id="drop-zone" class="w-full text-sm text-gray-400 cursor-pointer p-4 border-2 border-dashed border-gray-600 rounded-md text-center hover:border-accent">
+        Clique para selecionar ou arraste as imagens aqui
+    </div>
+    <input accept="image/*" class="sr-only" id="product-image-file" name="imageFile" type="file" multiple/>
+    <p class="text-xs text-gray-500 mt-1">Pode selecionar múltiplas imagens. A primeira será a principal.</p>
+    <!-- Galeria para pré-visualização e reordenação -->
+    <div id="image-gallery-preview" class="mt-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4"></div>
 </div>
 <div class="flex items-center">
 <input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox"/>
