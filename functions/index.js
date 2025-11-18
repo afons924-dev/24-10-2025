@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const renderer = require("./renderer");
+const axios = require("axios");
 
 // Initialize the application
 admin.initializeApp();
@@ -266,6 +267,280 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
     }
 
     res.status(200).send();
+});
+
+const crypto = require('crypto');
+
+// ... (existing code)
+
+/**
+ * Redirects the user to the AliExpress authorization page to initiate the OAuth 2.0 flow.
+ */
+exports.aliexpressAuthRedirect = functions.runWith({ secrets: ["ALIEXPRESS_APP_KEY"] }).https.onRequest((req, res) => {
+    cors(req, res, () => {
+        const { uid } = req.query;
+        if (!uid) {
+            res.status(400).send("User ID (uid) is a required query parameter.");
+            return;
+        }
+
+        const APP_KEY = process.env.ALIEXPRESS_APP_KEY;
+        if (!APP_KEY) {
+            console.error("ALIEXPRESS_APP_KEY secret is not set.");
+            res.status(500).send("Application is not configured correctly.");
+            return;
+        }
+
+        const REDIRECT_URI = `https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthCallback`;
+
+        // Create a state object containing the UID and a random nonce for CSRF protection.
+        const nonce = crypto.randomBytes(16).toString('hex');
+        const state = { uid, nonce };
+
+        // We'll store the nonce in Firestore to validate it in the callback.
+        db.collection('aliexpress_auth_states').doc(uid).set({ nonce: nonce, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+
+        // Encode the state object as a Base64 string to pass in the URL.
+        const encodedState = Buffer.from(JSON.stringify(state)).toString('base64');
+
+        const authorizationUrl = `https://oauth.aliexpress.com/authorize?response_type=code&client_id=${APP_KEY}&redirect_uri=${REDIRECT_URI}&state=${encodedState}&view=web`;
+
+        console.log(`Redirecting to AliExpress for authorization: ${authorizationUrl}`);
+        res.redirect(authorizationUrl);
+    });
+});
+
+
+/**
+ * Handles the callback from AliExpress after the user authorizes the application.
+ * Exchanges the authorization code for an access token and stores it.
+ */
+exports.aliexpressAuthCallback = functions.runWith({ secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }).https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        const { code, state } = req.query;
+        let decodedState;
+
+        if (!code || !state) {
+            return res.status(400).send("Error: Missing code or state from AliExpress callback.");
+        }
+
+        // 1. Decode the state and extract UID and nonce
+        try {
+            decodedState = JSON.parse(Buffer.from(state, 'base64').toString('utf8'));
+            if (!decodedState.uid || !decodedState.nonce) {
+                throw new Error("Invalid state format.");
+            }
+        } catch (error) {
+            console.error("Invalid state parameter:", error);
+            return res.status(400).send("Error: Invalid state parameter.");
+        }
+
+        // 2. Validate the nonce (CSRF protection)
+        const stateRef = db.collection('aliexpress_auth_states').doc(decodedState.uid);
+        const stateDoc = await stateRef.get();
+
+        if (!stateDoc.exists || stateDoc.data().nonce !== decodedState.nonce) {
+            console.error(`CSRF Warning: State nonce mismatch for user ${decodedState.uid}.`);
+            return res.status(403).send("Error: Invalid state. CSRF detected.");
+        }
+
+        // State is validated, delete it to prevent reuse.
+        await stateRef.delete();
+
+        const APP_KEY = process.env.ALIEXPRESS_APP_KEY;
+        const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET;
+
+        if (!APP_KEY || !APP_SECRET) {
+            console.error("ALIEXPRESS_APP_KEY or ALIEXPRESS_APP_SECRET secret is not set.");
+            res.status(500).send("Application is not configured correctly.");
+            return;
+        }
+        const TOKEN_URL = 'https://api.aliexpress.com/rest/auth/token/create';
+
+        try {
+            const response = await axios.post(TOKEN_URL, null, {
+                params: {
+                    client_id: APP_KEY,
+                    client_secret: APP_SECRET,
+                    code: code,
+                    grant_type: 'authorization_code',
+                    redirect_uri: `https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthCallback`,
+                }
+            });
+
+            const responseData = response.data;
+            if (!responseData || !responseData.access_token) {
+                 // Try to parse the error if the response is a string
+                let errorBody = responseData;
+                try {
+                    if (typeof responseData === 'string') {
+                         errorBody = JSON.parse(responseData);
+                    }
+                } catch (e) {
+                     // ignore parsing error
+                }
+                const errorMessage = errorBody.error_description || "No access token in response";
+                console.error("Failed to obtain access token from AliExpress:", errorMessage, "Full response:", errorBody);
+                return res.status(500).send(`Error: Could not obtain access token. ${errorMessage}`);
+            }
+
+
+            const { access_token, refresh_token, expire_time, refresh_token_valid_time, user_id, user_nick } = responseData;
+
+            // 3. Store tokens using the validated UID
+            await db.collection('aliexpress_tokens').doc(decodedState.uid).set({
+                accessToken: access_token,
+                refreshToken: refresh_token,
+                accessTokenExpiresAt: Date.now() + (expire_time * 1000),
+                refreshTokenExpiresAt: Date.now() + (refresh_token_valid_time * 1000),
+                aliExpressUserId: user_id,
+                aliExpressUserNick: user_nick,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            console.log(`Successfully stored AliExpress tokens for user ${decodedState.uid}`);
+            res.status(200).send("<h1>Authentication successful!</h1><p>You can now close this window.</p>");
+
+        } catch (error) {
+            console.error("Error exchanging authorization code for access token:", error.response ? error.response.data : error.message);
+            res.status(500).send("An error occurred while communicating with AliExpress.");
+        }
+    });
+});
+
+
+/**
+ * A callable function to import a product from AliExpress using its URL.
+ */
+exports.importAliExpressProduct = functions.runWith({ secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }).https.onCall(async (data, context) => {
+    // 1. Authentication and Authorization Check
+    // Ensure the user is authenticated and is an admin.
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const userDoc = await db.collection('users').doc(context.auth.uid).get();
+    if (!userDoc.exists || !userDoc.data().isAdmin) {
+        throw new functions.https.HttpsError('permission-denied', 'You must be an admin to perform this action.');
+    }
+
+    const { productUrl } = data;
+    if (!productUrl) {
+        throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a "productUrl" argument.');
+    }
+
+    // 2. Extract Product ID from URL
+    let productId;
+    try {
+        const url = new URL(productUrl);
+        productId = url.pathname.split('/')[2].replace('.html', '');
+    } catch (error) {
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid AliExpress product URL.');
+    }
+
+    // 3. Retrieve Stored Tokens
+    // The user calling this function is the admin, so we use their UID.
+    const tokenRef = db.collection('aliexpress_tokens').doc(context.auth.uid);
+    const tokenDoc = await tokenRef.get();
+
+    if (!tokenDoc.exists) {
+        throw new functions.https.HttpsError('failed-precondition', 'AliExpress account not connected. Please connect your account first.');
+    }
+
+    let { accessToken, refreshToken, accessTokenExpiresAt } = tokenDoc.data();
+
+    // 4. Token Refresh Logic
+    if (Date.now() >= accessTokenExpiresAt) {
+        console.log('Access token expired, refreshing...');
+        try {
+            const APP_KEY = process.env.ALIEXPRESS_APP_KEY;
+            const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET;
+            const REFRESH_URL = 'https://api.aliexpress.com/rest/auth/token/refresh';
+
+            if (!APP_KEY || !APP_SECRET) {
+                throw new functions.https.HttpsError('internal', 'AliExpress API secrets are not configured on the server.');
+            }
+
+            const response = await axios.post(REFRESH_URL, null, {
+                params: {
+                    client_id: APP_KEY,
+                    client_secret: APP_SECRET,
+                    refresh_token: refreshToken,
+                    grant_type: 'refresh_token',
+                }
+            });
+
+            if (response.data.access_token) {
+                accessToken = response.data.access_token;
+                refreshToken = response.data.refresh_token; // A new refresh token might be returned
+                accessTokenExpiresAt = Date.now() + (response.data.expire_time * 1000);
+
+                await tokenRef.update({
+                    accessToken: accessToken,
+                    refreshToken: refreshToken,
+                    accessTokenExpiresAt: accessTokenExpiresAt,
+                });
+                console.log('Successfully refreshed access token.');
+            } else {
+                throw new Error('Failed to refresh token: ' + JSON.stringify(response.data));
+            }
+        } catch (error) {
+            console.error('Error refreshing AliExpress access token:', error.response ? error.response.data : error.message);
+            throw new functions.https.HttpsError('unknown', 'Could not refresh the AliExpress session. Please try reconnecting your account.');
+        }
+    }
+
+    // 5. Make API Call to Get Product Details
+    try {
+        const API_BASE_URL = 'https://api.aliexpress.com/rest';
+        const METHOD = 'aliexpress.ds.product.get';
+        const APP_KEY = process.env.ALIEXPRESS_APP_KEY;
+        const APP_SECRET = process.env.ALIEXPRESS_APP_SECRET;
+
+        if (!APP_KEY || !APP_SECRET) {
+            throw new functions.https.HttpsError('internal', 'AliExpress API secrets are not configured on the server.');
+        }
+
+        const params = {
+            app_key: APP_KEY,
+            sign_method: 'sha256',
+            timestamp: Date.now(),
+            method: METHOD,
+            product_id: productId,
+            session: accessToken, // AliExpress API expects the token as 'session'
+        };
+
+        // Create the signature for the API call
+        const sortedKeys = Object.keys(params).sort();
+        const signString = sortedKeys.map(key => key + params[key]).join('');
+        const sign = crypto.createHmac('sha256', APP_SECRET).update(signString).digest('hex').toUpperCase();
+
+        const response = await axios.get(`${API_BASE_URL}`, {
+            params: {
+                ...params,
+                sign: sign,
+            }
+        });
+
+        // 6. Process and Return Product Data
+        const result = response.data.aliexpress_ds_product_get_response?.result;
+        if (!result) {
+            console.error("Error fetching product from AliExpress:", response.data);
+            throw new functions.https.HttpsError('not-found', 'Could not retrieve product details from AliExpress.');
+        }
+
+        // TODO: Map the result data to your own product schema.
+        const productData = {
+            name: result.ae_item_base_info_dto.subject,
+            description: result.ae_item_base_info_dto.detail,
+            // ... map other fields like images, price, variants, etc.
+        };
+
+        return { success: true, product: productData };
+
+    } catch (error) {
+        console.error('Error fetching AliExpress product:', error.response ? error.response.data : error.message);
+        throw new functions.https.HttpsError('unknown', 'An error occurred while fetching the product data from AliExpress.');
+    }
 });
 
 /**
