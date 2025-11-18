@@ -31,7 +31,7 @@ let stripe;
 /**
  * Creates a Stripe Payment Intent.
  */
-exports.createStripePaymentIntent = onRequest({ secrets: ["STRIPE_SECRET_KEY"], cors: corsOptions }, async (req, res) => {
+exports.createStripePaymentIntent = onRequest({ region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY"], cors: corsOptions }, async (req, res) => {
     if (req.method !== 'POST') {
         return res.status(405).send('Method Not Allowed');
     }
@@ -158,7 +158,7 @@ const fulfillOrder = async (paymentIntent) => {
 /**
  * Handles webhook events from Stripe.
  */
-exports.stripeWebhook = onRequest({ secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"] }, async (req, res) => {
+exports.stripeWebhook = onRequest({ region: 'europe-west3', secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"] }, async (req, res) => {
     if (!stripe) {
         stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     }
@@ -192,7 +192,7 @@ exports.stripeWebhook = onRequest({ secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHO
 /**
  * Redirects the user to the AliExpress authorization page.
  */
-exports.aliexpressAuthRedirect = onRequest({ secrets: ["ALIEXPRESS_APP_KEY"], cors: corsOptions }, (req, res) => {
+exports.aliexpressAuthRedirect = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY"], cors: corsOptions }, (req, res) => {
     const { uid } = req.query;
     if (!uid) {
         return res.status(400).send("User ID (uid) is a required query parameter.");
@@ -220,7 +220,7 @@ exports.aliexpressAuthRedirect = onRequest({ secrets: ["ALIEXPRESS_APP_KEY"], co
 /**
  * Handles the callback from AliExpress after authorization.
  */
-exports.aliexpressAuthCallback = onRequest({ secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"], cors: corsOptions }, async (req, res) => {
+exports.aliexpressAuthCallback = onRequest({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"], cors: corsOptions }, async (req, res) => {
     const { code, state } = req.query;
     if (!code || !state) {
         return res.status(400).send("Error: Missing code or state from AliExpress callback.");
@@ -277,7 +277,7 @@ exports.aliexpressAuthCallback = onRequest({ secrets: ["ALIEXPRESS_APP_KEY", "AL
 /**
  * Callable function to import a product from AliExpress.
  */
-exports.importAliExpressProduct = onCall({ secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, async (request) => {
+exports.importAliExpressProduct = onCall({ region: 'europe-west3', secrets: ["ALIEXPRESS_APP_KEY", "ALIEXPRESS_APP_SECRET"] }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
 
     const userDoc = await db.collection('users').doc(request.auth.uid).get();
@@ -355,4 +355,4 @@ exports.importAliExpressProduct = onCall({ secrets: ["ALIEXPRESS_APP_KEY", "ALIE
 /**
  * Server-side rendering function.
  */
-exports.ssr = onRequest(renderer.render);
+exports.ssr = onRequest({ region: 'europe-west3' }, renderer.render);
