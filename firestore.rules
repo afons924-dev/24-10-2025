@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Admin check is now based on a custom token claim, which is consistent and secure.
+    function isAdmin() {
+      return request.auth.token.isAdmin == true;
+    }
+
+    // Products: Public can read, Admins can write.
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin(); // create, update, delete
+    }
+
+    // Users: Can only manage their own document. Admins can read the full list for administrative purposes.
+    match /users/{userId} {
+      allow read, update, write: if request.auth.uid == userId;
+      allow list, read: if isAdmin();
+    }
+
+    // Orders: Admins can manage everything. Users can only read their own orders.
+    match /orders/{orderId} {
+      allow list, read, update: if isAdmin();
+      allow read: if request.auth.uid == resource.data.userId;
+      allow create, delete: if false; // Only Cloud Functions can create/delete.
+    }
+
+    // Product Ratings: Admins can manage all. Public can read approved. Users can create/read their own.
+    match /product_ratings/{ratingId} {
+      allow list, read, update, delete: if isAdmin();
+      allow read: if resource.data.status == 'approved' || (request.auth != null && request.auth.uid == resource.data.userId);
+      allow create: if request.auth.uid != null;
+    }
+
+    // Contact Messages: Public can create, Admins can manage.
+    match /contact_messages/{messageId} {
+      allow create: if true;
+      allow read, list, update, delete: if isAdmin();
+    }
+
+    // Newsletter Subscriptions: Public can create, Admins can manage.
+    match /newsletter_subscriptions/{subscriptionId} {
+      allow create: if true;
+      allow read, list, update, delete: if isAdmin();
+    }
+
+    // Flash Sale: Public can read, Admins can write.
+    match /flash_sale/current {
+        allow read: if true;
+        allow write: if isAdmin();
+    }
+
+    // Internal collections, no client access.
+    match /notifications/{d} { allow read, write: if false; }
+    match /stripe_sessions/{d} { allow read, write: if false; }
+  }
+}

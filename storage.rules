@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default to public read access for all files (e.g., product images).
+    match /{allPaths=**} {
+      allow read;
+    }
+
+    // Admins are identified by the 'isAdmin' custom token claim.
+    // They can upload any files to the 'products' folder.
+    match /products/{allPaths=**} {
+      allow write: if request.auth.token.isAdmin == true
+                   && request.resource.size < 2 * 1024 * 1024; // 2MB size limit
+    }
+
+    // Authenticated users can upload review images, but with strict rules.
+    match /reviews/{fileName} {
+      // Users can only write files where the filename is prefixed with their UID.
+      // This prevents users from overwriting each other's files.
+      allow write: if request.auth != null
+                   && fileName.startsWith(request.auth.uid + '_')
+                   && request.resource.size < 2 * 1024 * 1024 // 2MB size limit
+                   && request.resource.contentType.matches('image/.*'); // Only allow images
+    }
+  }
+}

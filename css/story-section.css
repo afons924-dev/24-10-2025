@@ -1,0 +1,27 @@
+.about-us .stat-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  border: 1px solid transparent;
+}
+
+.about-us .stat-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  border-color: rgba(var(--color-accent-rgb), 0.5);
+}
+
+.about-us ul li {
+  position: relative;
+  padding-left: 28px;
+}
+
+.about-us ul li i {
+    position: absolute;
+    left: 0;
+    top: 5px;
+}
+
+@media (max-width: 768px) {
+    .about-us .grid-cols-1.md\:grid-cols-2 {
+        grid-template-columns: 1fr;
+    }
+}

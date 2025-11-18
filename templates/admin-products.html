@@ -1,0 +1,96 @@
+<div class="flex flex-col lg:flex-row gap-12">
+    <div class="w-full lg:w-1/2">
+        <div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
+            <h2 class="text-2xl font-bold mb-6" id="admin-form-title" data-i18n="addProductTitle">Adicionar Novo Produto</h2>
+            <form id="admin-product-form" novalidate="">
+                <input id="product-id" name="id" type="hidden" />
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-name" data-i18n="productNameLabel">Nome do Produto</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-name" name="name" required="" type="text" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-description" data-i18n="descriptionLabel">Descrição</label>
+                        <textarea class="w-full p-3 rounded-md form-input" id="product-description" name="description" required="" rows="4"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-price" data-i18n="priceLabel">Preço (€)</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-price" name="price" required="" step="0.01" type="number" />
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-category" data-i18n="categoryLabel">Categoria</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-category" name="category" placeholder="Ex: para-ela, para-ele" required="" type="text" data-i18n-placeholder="categoryPlaceholder" />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-gray-300 mb-2" for="product-stock" data-i18n="stockLabel">Stock</label>
+                            <input class="w-full p-3 rounded-md form-input" id="product-stock" name="stock" required="" type="number" value="10">
+                        </div>
+                        <div>
+                            <label class="block text-gray-300 mb-2" for="product-brand" data-i18n="brandLabel">Marca</label>
+                            <input class="w-full p-3 rounded-md form-input" id="product-brand" name="brand" type="text">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-color" data-i18n="colorLabel">Cor</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-color" name="color" type="text">
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="product-material" data-i18n="materialLabel">Material</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-material" name="material" type="text">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-gray-300 mb-2" for="product-tags">Tags (separadas por vírgula)</label>
+                        <input class="w-full p-3 rounded-md form-input" id="product-tags" name="tags" type="text" placeholder="Ex: silencioso, potente, recarregável">
+                    </div>
+
+                    <!-- NEW IMAGE UPLOAD SECTION -->
+                    <div>
+                        <label class="block text-gray-300 mb-2" data-i18n="productImageLabel">Imagens do Produto</label>
+
+                        <!-- Image Gallery Preview -->
+                        <div id="image-gallery-container" class="mt-4">
+                            <div id="image-gallery-preview" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+                                <!-- As pré-visualizações de imagem serão injetadas aqui pelo JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="drop-zone" class="mt-4 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-600 border-dashed rounded-md cursor-pointer hover:border-accent">
+                            <div class="space-y-1 text-center">
+                                <i class="fas fa-images text-4xl text-gray-400"></i>
+                                <div class="flex text-sm text-gray-400">
+                                    <label for="product-image-file" class="relative cursor-pointer bg-primary rounded-md font-medium text-accent hover:text-pink-400 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
+                                        <span>Carregue os ficheiros</span>
+                                        <input id="product-image-file" name="imageFiles" type="file" class="sr-only" multiple accept="image/*">
+                                    </label>
+                                    <p class="pl-1">ou arraste e solte</p>
+                                </div>
+                                <p class="text-xs text-gray-500">PNG, JPG, GIF até 2MB</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center">
+                        <input class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-accent focus:ring-accent" id="product-show-urgency" name="showUrgency" type="checkbox" />
+                        <label class="ml-2 text-gray-300" for="product-show-urgency" data-i18n="showUrgencyLabel">Mostrar mensagem de "Poucas unidades!"</label>
+                    </div>
+                    <div>
+                        <label class="block text-gray-300 mb-2" for="aliexpress-url">URL do AliExpress</label>
+                        <input class="w-full p-3 rounded-md form-input" id="aliexpress-url" name="aliexpressUrl" type="url" placeholder="Cole a URL do AliExpress aqui">
+                    </div>
+                </div>
+                <div class="mt-6 flex gap-4">
+                    <button class="w-full btn btn-primary" type="submit" data-i18n="saveProductButton">Guardar Produto</button>
+                    <button class="w-full btn btn-secondary" id="clear-form-btn" type="button" data-i18n="clearFormButton">Limpar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="w-full lg:w-1/2">
+        <div class="bg-primary p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-6" data-i18n="productListTitle">Lista de Produtos</h2>
+            <div class="space-y-4 max-h-[70vh] overflow-y-auto" id="admin-product-list"></div>
+        </div>
+    </div>
+</div>
