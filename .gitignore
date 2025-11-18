@@ -1,6 +1,5 @@
 # Dependencies
-# Normally we would ignore functions/node_modules, but we are leaving it out
-# as a temporary workaround for a broken agent environment.
+functions/node_modules/
 /node_modules
 
 # Firebase
