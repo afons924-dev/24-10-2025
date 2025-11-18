@@ -1,3 +1,4 @@
+import { functions } from "./firebase.js";
 import { auth, db, storage } from './firebase.js';
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, getDoc, setDoc, collection, getDocs, addDoc, query, where, deleteDoc, updateDoc, writeBatch, serverTimestamp, orderBy, runTransaction, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -6,7 +7,7 @@ import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/
 import { renderAllProducts, renderProductCard, renderStars } from './modules/ui.js';
 import { getFirebaseErrorMessage, logout } from './modules/auth.js';
 import { on } from './modules/events.js';
-
+const importAliExpressProduct = httpsCallable(functions, "importAliExpressProduct");
 
 // TODO: Lançamento: Substitua esta chave pela sua chave do site reCAPTCHA de produção
 const RECAPTCHA_SITE_KEY = '6LeJXJIrAAAAAMh4x_AG8ZJH_RmdIJ50MICzriCi';
@@ -79,6 +80,8 @@ const app = {
     products: [], cart: [], user: null, userProfile: null,
     orders: [], allOrders: [], authReady: false, checkoutStep: 1,
     exitIntentShown: false,
+    adminImageFiles: [], // Stores new File objects for upload
+    adminExistingImages: [], // Stores existing image URLs for the product being edited
     translations: {},
     filters: { category: 'all', minPrice: 0, maxPrice: 0, brand: [], color: [], material: [] },
     filteredProducts: [],
@@ -104,16 +107,20 @@ const app = {
         };
     },
 
-    init() {
+    async init() {
         this.auth = auth;
         this.db = db;
         this.storage = storage;
-        this.functions = getFunctions();
+        this.functions = getFunctions(auth.app, 'europe-west3');
+
+        // Basic setup that doesn't depend on auth or page content
         this.initStripe();
         this.initCookieConsent();
-        this.initAgeGate();
         this.initThemeSwitcher();
         this.initLanguageSwitcher();
+
+        // Age gate must be handled before starting the main app logic
+        this.initAgeGate(); // This will call startApp()
     },
 
     initStripe() {
@@ -121,7 +128,13 @@ const app = {
             console.error('Stripe.js not loaded');
             return;
         }
-        this.stripe = Stripe(STRIPE_PUBLIC_KEY);
+        try {
+            // Initialize Stripe. If the key is a placeholder, this will fail.
+            this.stripe = Stripe(STRIPE_PUBLIC_KEY);
+        } catch (error) {
+            console.error("Failed to initialize Stripe, likely due to a placeholder key. Payment functionality will be disabled.", error.message);
+            this.stripe = null; // Ensure stripe is null if initialization fails
+        }
     },
 
     initThemeSwitcher() {
@@ -247,7 +260,16 @@ const app = {
 
     async startApp() {
         this.addEventListeners();
-        await this.handleAuthState();
+        await this.handleAuthState(); // Auth is now ready
+
+        // Check for Stripe redirect URL params now that auth is complete
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('payment_intent_client_secret')) {
+            await this.handlePostPayment(urlParams);
+            // Clean up URL to prevent reprocessing on refresh
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        }
+
         await this.loadProducts();
         await this.renderPage();
     },
@@ -298,7 +320,6 @@ const app = {
     initializeAnalytics() {
         if (typeof gtag === 'function' && GOOGLE_ANALYTICS_ID) {
             gtag('config', GOOGLE_ANALYTICS_ID);
-            console.log('Google Analytics initialized.');
         }
     },
 
@@ -367,7 +388,24 @@ const app = {
             else if (closest('.quick-view-btn')) this.openPreviewModal(closest('.quick-view-btn').dataset.id);
             else if (closest('.quantity-change')) this.updateCartQuantity(closest('[data-id]').dataset.id, closest('.quantity-change').dataset.action);
             else if (closest('.remove-item')) this.removeFromCart(closest('[data-id]').dataset.id);
-            else if (closest('a[href^="#/"]') && !e.target.closest('a').target) { e.preventDefault(); this.navigateTo(new URL(e.target.closest('a').href).hash.substring(1)); }
+            // Delegated search listeners must come before the generic link handler
+            else if (closest('#search-icon')) { this.openSearch(); }
+            else if (closest('#close-search-btn')) { this.closeSearch(); }
+            else if (closest('.search-suggestion-item')) {
+                // This handles both product items and category links.
+                // For categories, we close immediately. For products, we add a small delay.
+                if (closest('a').href.includes('/products?category=')) {
+                    this.closeSearch();
+                } else {
+                    setTimeout(() => this.closeSearch(), 50);
+                }
+            }
+             else if (closest('#search-suggestions a.block')) {
+                // This specifically targets the "See all results" link.
+                // We can close it immediately, navigation will still occur.
+                this.closeSearch();
+            }
+            else if (closest('a[href^="#/"]') && !closest('.search-suggestion-item') && !e.target.closest('a').target) { e.preventDefault(); this.navigateTo(new URL(e.target.closest('a').href).hash.substring(1)); }
             else if (closest('#login-btn')) this.openAuthModal('login');
             else if (closest('.category-filter-btn')) { e.preventDefault(); this.handleCategoryFilterClick(closest('.category-filter-btn')); }
             else if (closest('.accordion-header')) this.toggleAccordion(closest('.accordion-header'));
@@ -387,6 +425,28 @@ const app = {
             else if (closest('.notify-me-btn')) {
                 e.preventDefault();
                 this.openNotifyMeModal(closest('.notify-me-btn').dataset.id);
+            }
+             else if (closest('#bottom-nav-cart')) {
+                e.preventDefault();
+                this.openCartSidebar();
+            }
+        });
+
+        // Use a separate listener for clicks that should close the search, to avoid conflicts.
+        document.addEventListener('click', (e) => {
+            const searchOverlay = document.getElementById('search-overlay');
+            // If the search is closed, do nothing.
+            if (!searchOverlay || searchOverlay.classList.contains('hidden')) {
+                return;
+            }
+
+            const searchContainer = searchOverlay.querySelector('.relative');
+            const clickedInsideSearch = searchContainer && searchContainer.contains(e.target);
+            const clickedOnSearchIcon = e.target.closest('#search-icon');
+
+            // If the click is outside the search area and not on the icon that opens it, close.
+            if (!clickedInsideSearch && !clickedOnSearchIcon) {
+                this.closeSearch();
             }
         });
 
@@ -494,9 +554,33 @@ const app = {
     },
 
     updateActiveNav(path) {
+        // Top header and mobile slide-out menu
         document.querySelectorAll('#main-nav .nav-link, #mobile-menu .nav-link').forEach(link => {
             link.classList.toggle('active', link.dataset.route === path);
         });
+
+        // Bottom navigation bar
+        document.querySelectorAll('#bottom-nav .bottom-nav-link').forEach(link => {
+            // Special handling for account and its sub-pages (wishlist, etc.)
+            if (link.dataset.route === '/account' && path.startsWith('/account')) {
+                link.classList.add('active');
+            } else {
+                link.classList.toggle('active', link.dataset.route === path);
+            }
+        });
+
+        // Also, hide redundant icons in the header on mobile
+        const isMobile = window.innerWidth < 768;
+        const cartIconHeader = document.getElementById('cart-icon-container');
+        const authContainerHeader = document.getElementById('auth-container');
+
+        if (isMobile) {
+            if (cartIconHeader) cartIconHeader.style.display = 'none';
+            if (authContainerHeader) authContainerHeader.style.display = 'none';
+        } else {
+            if (cartIconHeader) cartIconHeader.style.display = 'flex';
+            if (authContainerHeader) authContainerHeader.style.display = 'flex';
+        }
     },
 
     async runPageSpecificScripts(path, params) {
@@ -544,9 +628,29 @@ const app = {
         this.initHeroCarousel();
         this.initFeaturedProductCarousel();
         await this.renderTestimonials();
+        this.initTestimonialsCarousel();
     this.renderRecentlyViewed();
         this.animateHomePageElements();
         this.initFlashSale();
+    },
+
+    initTestimonialsCarousel() {
+        const carousel = document.getElementById('testimonials-container');
+        const prevBtn = document.getElementById('testimonials-prev');
+        const nextBtn = document.getElementById('testimonials-next');
+        if (!carousel || !prevBtn || !nextBtn) return;
+
+        const updateCarouselButtons = () => {
+            const maxScrollLeft = carousel.scrollWidth - carousel.clientWidth;
+            prevBtn.style.display = carousel.scrollLeft > 0 ? 'flex' : 'none';
+            nextBtn.style.display = carousel.scrollLeft < maxScrollLeft -1 ? 'flex' : 'none';
+        };
+
+        carousel.addEventListener('scroll', updateCarouselButtons);
+        nextBtn.addEventListener('click', () => carousel.scrollBy({ left: carousel.clientWidth, behavior: 'smooth' }));
+        prevBtn.addEventListener('click', () => carousel.scrollBy({ left: -carousel.clientWidth, behavior: 'smooth' }));
+
+        setTimeout(updateCarouselButtons, 100); // Initial check
     },
 
     initHeroCarousel() {
@@ -709,12 +813,12 @@ const app = {
                 where("status", "==", "approved"),
                 where("score", ">=", 4),
                 orderBy("createdAt", "desc"),
-                limit(3)
+                limit(9) // Load more for the carousel
             );
             const querySnapshot = await getDocs(q);
             const reviews = querySnapshot.docs.map(doc => doc.data());
 
-            if (reviews.length > 0) {
+            if (reviews.length > 2) { // Need at least 3 for a carousel to make sense
                 container.innerHTML = reviews.map(review => {
                     const author = review.userName || 'Anónimo';
                     const avatarId = author.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -722,11 +826,13 @@ const app = {
                     const quote = review.comment || 'Excelente produto! Recomendo vivamente.';
 
                     return `
-                    <div class="bg-primary p-8 rounded-lg text-center">
-                        <p class="text-gray-300 italic mb-6">"${quote}"</p>
-                        <div class="flex items-center justify-center">
-                            <img src="${avatar}" alt="Avatar de ${author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
-                            <span class="font-bold text-white">${author}</span>
+                    <div class="snap-start shrink-0 w-full md:w-1/3 p-4">
+                        <div class="bg-primary p-8 rounded-lg text-center h-full flex flex-col justify-center">
+                            <p class="text-gray-300 italic mb-6">"${quote}"</p>
+                            <div class="flex items-center justify-center">
+                                <img src="${avatar}" alt="Avatar de ${author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
+                                <span class="font-bold text-white">${author}</span>
+                            </div>
                         </div>
                     </div>`;
                 }).join('');
@@ -748,11 +854,13 @@ const app = {
             { quote: "Fiquei impressionada com a atenção ao detalhe, desde a embalagem discreta ao apoio ao cliente. Sentimo-nos valorizados.", author: "Sofia L.", avatar: "https://i.pravatar.cc/150?u=a042581f4e29026706d" }
         ];
         container.innerHTML = testimonials.map(t => `
-            <div class="bg-primary p-8 rounded-lg text-center">
-                <p class="text-gray-300 italic mb-6">"${t.quote}"</p>
-                <div class="flex items-center justify-center">
-                    <img src="${t.avatar}" alt="Avatar de ${t.author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
-                    <span class="font-bold text-white">${t.author}</span>
+            <div class="snap-start shrink-0 w-full md:w-1/3 p-4">
+                <div class="bg-primary p-8 rounded-lg text-center h-full flex flex-col justify-center">
+                    <p class="text-gray-300 italic mb-6">"${t.quote}"</p>
+                    <div class="flex items-center justify-center">
+                        <img src="${t.avatar}" alt="Avatar de ${t.author}" class="w-12 h-12 rounded-full mr-4" loading="lazy">
+                        <span class="font-bold text-white">${t.author}</span>
+                    </div>
                 </div>
             </div>`).join('');
     },
@@ -805,10 +913,8 @@ const app = {
         if (!saleSection) return;
 
         try {
-            console.log("Initializing Flash Sale...");
             const saleDoc = await getDoc(doc(this.db, "flash_sale", "current"));
             if (!saleDoc.exists()) {
-                console.log("Flash Sale: No 'current' document found.");
                 saleSection.classList.add('hidden');
                 return;
             }
@@ -818,19 +924,16 @@ const app = {
             const now = new Date();
 
             if (endDate <= now) {
-                console.log("Flash Sale: Sale has expired.", { endDate, now });
                 saleSection.classList.add('hidden');
                 return;
             }
 
             const product = this.products.find(p => p.id === saleData.productId);
             if (!product) {
-                console.log("Flash Sale: Product with ID not found:", saleData.productId);
                 saleSection.classList.add('hidden');
                 return;
             }
 
-            console.log("Flash Sale: Rendering active sale for product:", product.name);
             const discountedPrice = product.price * (1 - saleData.discountPercentage / 100);
 
             const saleContainer = document.getElementById('flash-sale-container');
@@ -1101,7 +1204,7 @@ const app = {
         return `
             <div class="mt-12 pt-8 border-t-2 border-gray-700">
                 <h3 class="text-3xl font-bold text-center mb-8">Também poderá gostar</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${relatedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}
                 </div>
             </div>
@@ -1121,7 +1224,7 @@ const app = {
         return `
             <div class="mt-12 pt-8 border-t-2 border-gray-700">
                 <h3 class="text-3xl font-bold text-center mb-8">Também poderá gostar</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     ${relatedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}
                 </div>
             </div>
@@ -1173,7 +1276,8 @@ const app = {
                    this.hideLoading();
                    return;
                 }
-                const storageRef = ref(this.storage, `reviews/${this.user.uid}_${Date.now()}_${imageFile.name}`);
+                const fileName = `${this.user.uid}_${Date.now()}_${imageFile.name}`;
+                const storageRef = ref(this.storage, `reviews/${fileName}`);
                 const snapshot = await uploadBytes(storageRef, imageFile);
                 imageUrl = await getDownloadURL(snapshot.ref);
             }
@@ -1273,9 +1377,212 @@ const app = {
         contentArea.innerHTML = templateNode.innerHTML;
 
         this.renderAdminProductList();
+        this.clearAdminForm(); // Also initializes image arrays and gallery
+
         const form = document.getElementById('admin-product-form');
         form.addEventListener('submit', (e) => this.handleAdminFormSubmit(e));
         document.getElementById('clear-form-btn').addEventListener('click', () => this.clearAdminForm());
+
+        // Image Upload Logic
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('product-image-file');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => this.handleAdminImageFiles(e.target.files));
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('border-accent'));
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('border-accent'));
+        });
+
+        dropZone.addEventListener('drop', (e) => this.handleAdminImageFiles(e.dataTransfer.files));
+
+
+        const aliExpressUrlInput = document.getElementById('aliexpress-url');
+// Certifique-se de inicializar Firebase antes disso:
+// firebase.initializeApp(firebaseConfig);
+
+
+
+if (aliExpressUrlInput) {
+    if (this.userProfile?.isAdmin) {
+        const aliexpressSection = document.getElementById('aliexpress-integration-section');
+        const urlParams = new URLSearchParams(window.location.search);
+        let statusMessage = '';
+
+        if (urlParams.has('aliexpress')) {
+            statusMessage = urlParams.get('aliexpress') === 'success'
+                ? '<p class="text-green-400">Conta AliExpress conectada com sucesso!</p>'
+                : '<p class="text-red-500">Erro ao conectar conta AliExpress.</p>';
+        }
+
+        aliexpressSection.innerHTML = `
+            <h3 class="text-xl font-bold mb-4">Integração AliExpress</h3>
+            ${statusMessage}
+            <p class="text-gray-400 mb-4">Conecte sua conta de vendedor AliExpress.</p>
+            <button class="btn btn-primary" id="connect-aliexpress-btn">Conectar AliExpress</button>
+            <div class="mt-4">
+                <input type="text" id="productIdInput" placeholder="ID do produto AliExpress" class="border px-2 py-1 mr-2">
+                <button class="btn btn-secondary" id="importProductBtn">Importar Produto</button>
+            </div>
+            <div id="productResult" class="mt-4"></div>
+        `;
+
+        document.getElementById('connect-aliexpress-btn').addEventListener('click', async () => {
+            if (!this.user) {
+                this.showToast('Faça login para conectar AliExpress.', 'error');
+                return;
+            }
+            this.showLoading();
+            try {
+                await this.user.getIdToken();
+                window.location.href = "https://europe-west3-desire-loja-final.cloudfunctions.net/aliexpressAuthRedirect";
+            } catch (error) {
+                console.error(error);
+                this.showToast('Erro de autenticação.', 'error');
+            } finally { this.hideLoading(); }
+        });
+
+        document.getElementById('importProductBtn').addEventListener('click', async () => {
+            const productId = document.getElementById("productIdInput").value.trim();
+            if (!productId) return this.showToast("Informe o ID do produto AliExpress.", 'error');
+
+            const resultDiv = document.getElementById("productResult");
+            resultDiv.innerHTML = "Carregando...";
+
+            try {
+                const functions = getFunctions(undefined, "europe-west3");
+                const importAliExpressProduct = httpsCallable(functions, "importAliExpressProduct");
+                const result = await importAliExpressProduct({ productId });
+                const product = result.data;
+
+                if (product.error) throw new Error(product.error);
+
+                if (window.form) {
+                    form.name.value = product.name || '';
+                    form.description.value = product.description || '';
+                    form.price.value = product.price || 0;
+                }
+
+                this.adminImageFiles = [];
+                this.adminExistingImages = product.images || [];
+                if (this.renderAdminImageGallery) this.renderAdminImageGallery();
+
+                this.showToast('Produto importado com sucesso!');
+                resultDiv.innerHTML = `<pre>${JSON.stringify(product, null, 2)}</pre>`;
+            } catch (error) {
+                console.error(error);
+                this.showToast(`Erro ao importar: ${error.message}`, 'error');
+                resultDiv.innerHTML = '';
+            } finally { this.hideLoading(); }
+        });
+
+        aliExpressUrlInput.addEventListener('paste', async (e) => {
+            e.preventDefault();
+            const url = (e.clipboardData || window.clipboardData).getData('text');
+            if (!url || !url.includes('aliexpress.com')) {
+                this.showToast('Cole um URL válido AliExpress.', 'error');
+                return;
+            }
+            aliExpressUrlInput.value = url;
+        });
+    }
+}
+
+
+},
+
+    handleAdminImageFiles(files) {
+        const MAX_FILES = 10;
+        const MAX_SIZE_MB = 2;
+
+        if (this.adminExistingImages.length + this.adminImageFiles.length + files.length > MAX_FILES) {
+            this.showToast(`Não pode carregar mais do que ${MAX_FILES} imagens no total.`, 'error');
+            return;
+        }
+
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) {
+                this.showToast(`O ficheiro '${file.name}' não é uma imagem.`, 'error');
+                return;
+            }
+            if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+                this.showToast(`A imagem '${file.name}' excede o limite de ${MAX_SIZE_MB}MB.`, 'error');
+                return;
+            }
+            this.adminImageFiles.push(file);
+        });
+
+        this.renderAdminImageGallery();
+    },
+
+    renderAdminImageGallery() {
+        const galleryPreview = document.getElementById('image-gallery-preview');
+        if (!galleryPreview) return;
+
+        galleryPreview.innerHTML = ''; // Clear current previews
+
+        // Render existing images (from URLs)
+        this.adminExistingImages.forEach((url, index) => {
+            const isMain = index === 0;
+            const imageWrapper = document.createElement('div');
+            imageWrapper.className = `relative group border-2 ${isMain ? 'border-accent' : 'border-transparent'} rounded-md overflow-hidden`;
+            imageWrapper.innerHTML = `
+                <img src="${url}" class="w-full h-24 object-cover" alt="Pré-visualização de imagem existente">
+                <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" title="Eliminar imagem" class="delete-existing-image-btn text-white hover:text-red-500" data-url="${url}"><i class="fas fa-trash"></i></button>
+                    ${!isMain ? `<button type="button" title="Definir como principal" class="set-main-image-btn text-white hover:text-accent" data-url="${url}"><i class="fas fa-star"></i></button>` : ''}
+                </div>
+                ${isMain ? '<div class="absolute top-1 right-1 bg-accent text-white text-xs px-1.5 py-0.5 rounded">Principal</div>' : ''}
+            `;
+            galleryPreview.appendChild(imageWrapper);
+        });
+
+        // Render new files to be uploaded (from File objects)
+        this.adminImageFiles.forEach((file, index) => {
+            const imageWrapper = document.createElement('div');
+            imageWrapper.className = 'relative group border-2 border-dashed border-gray-500 rounded-md overflow-hidden';
+            imageWrapper.innerHTML = `
+                <img src="${URL.createObjectURL(file)}" class="w-full h-24 object-cover" alt="Pré-visualização de novo ficheiro">
+                <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" title="Remover ficheiro" class="delete-new-image-btn text-white hover:text-red-500" data-index="${index}"><i class="fas fa-times-circle"></i></button>
+                </div>
+            `;
+            galleryPreview.appendChild(imageWrapper);
+        });
+
+        // Add event listeners
+        document.querySelectorAll('.delete-existing-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const url = e.currentTarget.dataset.url;
+            this.adminExistingImages = this.adminExistingImages.filter(imgUrl => imgUrl !== url);
+            // TODO: In a real-world scenario, you might want to delete the file from Storage here,
+            // but that's complex as it might be used elsewhere. For now, we just unlink it from the product.
+            this.renderAdminImageGallery();
+        }));
+
+        document.querySelectorAll('.delete-new-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const index = parseInt(e.currentTarget.dataset.index);
+            this.adminImageFiles.splice(index, 1);
+            this.renderAdminImageGallery();
+        }));
+
+        document.querySelectorAll('.set-main-image-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            const url = e.currentTarget.dataset.url;
+            const oldMain = this.adminExistingImages[0];
+            this.adminExistingImages = this.adminExistingImages.filter(imgUrl => imgUrl !== url);
+            this.adminExistingImages.unshift(url);
+            this.renderAdminImageGallery();
+        }));
     },
 
     async initAdminOrdersPage() {
@@ -1545,22 +1852,34 @@ const app = {
     async handleAdminFormSubmit(e) {
         e.preventDefault();
         const form = e.target;
-        if (!this.validateForm(form)) { this.showToast('Por favor, preencha todos os campos obrigatórios.', 'error'); return; }
+        if (!this.validateForm(form)) {
+            this.showToast('Por favor, preencha todos os campos obrigatórios.', 'error');
+            return;
+        }
+        if (this.adminExistingImages.length === 0 && this.adminImageFiles.length === 0) {
+            this.showToast('É necessário pelo menos uma imagem para o produto.', 'error');
+            return;
+        }
+
         this.showLoading();
         const productId = form.id.value;
-        const fileInput = form.imageFile;
-        const file = fileInput.files[0];
-        let imageUrl = form.imageUrl.value;
 
-        if (file) {
+        let finalImageUrls = [...this.adminExistingImages];
+
+        // Upload new files
+        for (const file of this.adminImageFiles) {
             try {
                 const storageRef = ref(this.storage, `products/${Date.now()}_${file.name}`);
                 const snapshot = await uploadBytes(storageRef, file);
-                imageUrl = await getDownloadURL(snapshot.ref);
-            } catch (uploadError) { console.error("Erro no upload da imagem:", uploadError); this.showToast('Erro ao fazer upload da imagem. Verifique as regras de Storage e a configuração CORS.', 'error'); this.hideLoading(); return; }
+                const downloadURL = await getDownloadURL(snapshot.ref);
+                finalImageUrls.push(downloadURL);
+            } catch (uploadError) {
+                console.error("Erro no upload da imagem:", uploadError);
+                this.showToast(`Erro ao fazer upload de '${file.name}'.`, 'error');
+                this.hideLoading();
+                return;
+            }
         }
-
-        if (!imageUrl && !productId) { this.showToast('Uma imagem é obrigatória para criar um novo produto.', 'error'); this.hideLoading(); return; }
 
         const productData = {
             name: form.name.value,
@@ -1573,14 +1892,12 @@ const app = {
             material: form.material.value,
             tags: form.tags.value.split(',').map(tag => tag.trim()).filter(tag => tag),
             showUrgency: form.showUrgency.checked,
+            images: finalImageUrls, // The final array of image URLs
+            // Preserve rating when updating
             averageRating: productId ? (this.products.find(p => p.id === productId)?.averageRating || 0) : 0,
-            ratingCount: productId ? (this.products.find(p => p.id === productId)?.ratingCount || 0) : 0
+            ratingCount: productId ? (this.products.find(p => p.id === productId)?.ratingCount || 0) : 0,
+            aliexpressUrl: form.aliexpressUrl.value.trim()
         };
-
-        // Handle images array
-        const existingProduct = productId ? this.products.find(p => p.id === productId) : null;
-        let existingImages = (existingProduct && existingProduct.images) ? existingProduct.images.filter(img => img !== imageUrl) : [];
-        productData.images = [imageUrl, ...existingImages];
 
         try {
             if (productId) {
@@ -1597,15 +1914,21 @@ const app = {
             this.clearAdminForm();
             this.renderAdminProductList();
             this.applyFilters();
-        } catch (error) { console.error("Erro ao guardar produto:", error); this.showToast('Erro ao guardar o produto. Verifique as regras da base de dados.', 'error');
-        } finally { this.hideLoading(); }
+        } catch (error) {
+            console.error("Erro ao guardar produto:", error);
+            this.showToast('Erro ao guardar o produto. Verifique as regras da base de dados.', 'error');
+        } finally {
+            this.hideLoading();
+        }
     },
 
     populateAdminFormForEdit(productId) {
         const product = this.products.find(p => p.id === productId);
         if (!product) return;
+
+        this.clearAdminForm(); // Reset state before populating
+
         const form = document.getElementById('admin-product-form');
-        const imageUrl = (product.images && product.images[0]) || product.image || '';
         form.id.value = productId;
         form.name.value = product.name || '';
         form.description.value = product.description || '';
@@ -1615,25 +1938,36 @@ const app = {
         form.brand.value = product.brand || '';
         form.color.value = product.color || '';
         form.material.value = product.material || '';
-        form.imageUrl.value = imageUrl;
         form.showUrgency.checked = !!product.showUrgency;
         form.tags.value = (product.tags || []).join(', ');
-        const preview = document.getElementById('product-image-preview');
-        if (imageUrl) {
-            preview.src = imageUrl;
-            preview.classList.remove('hidden');
-        } else {
-            preview.classList.add('hidden');
-        }
+        form.aliexpressUrl.value = product.aliexpressUrl || '';
+
+        // Populate and render the image gallery
+        this.adminExistingImages = product.images || (product.image ? [product.image] : []);
+        this.renderAdminImageGallery();
+
         document.getElementById('admin-form-title').textContent = 'Editar Produto';
         form.scrollIntoView({ behavior: 'smooth' });
     },
 
     clearAdminForm() {
         const form = document.getElementById('admin-product-form');
-        form.reset(); form.id.value = ''; form.imageUrl.value = '';
-        document.getElementById('admin-form-title').textContent = 'Adicionar Novo Produto';
-        document.getElementById('product-image-preview').classList.add('hidden');
+        if (form) {
+            form.reset();
+            form.id.value = '';
+        }
+
+        // Reset image management state
+        this.adminImageFiles = [];
+        this.adminExistingImages = [];
+
+        // Update the UI
+        this.renderAdminImageGallery();
+
+        const adminFormTitle = document.getElementById('admin-form-title');
+        if (adminFormTitle) {
+            adminFormTitle.textContent = 'Adicionar Novo Produto';
+        }
     },
 
     handleDeleteProduct(productId) {
@@ -2058,6 +2392,17 @@ const app = {
         mobileContainer.innerHTML = mobileAuthLinks;
         document.getElementById('mobile-login-btn')?.addEventListener('click', () => this.openAuthModal('login'));
         document.getElementById('mobile-logout-btn')?.addEventListener('click', () => logout(this.auth));
+
+        // Handle the bottom navigation account link
+        const bottomNavAccountLink = document.querySelector('#bottom-nav a[data-route="/account"]');
+        if (bottomNavAccountLink) {
+            if (!isLoggedIn) {
+                bottomNavAccountLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.openAuthModal('login');
+                }, { once: true }); // Use once to avoid multiple listeners
+            }
+        }
     },
 
     getTranslation(key, replacements = {}) {
@@ -2130,7 +2475,6 @@ const app = {
             if (cachedDataJSON) {
                 const cachedData = JSON.parse(cachedDataJSON);
                 if (cachedData && (Date.now() - cachedData.timestamp < CACHE_DURATION)) {
-                    console.log('Loading products from cache.');
                     this.products = cachedData.products;
                     return; // Exit without showing loading indicator
                 }
@@ -2141,7 +2485,6 @@ const app = {
         }
 
 
-        console.log('Fetching products from Firestore.');
         this.showLoading();
         try {
             const productSnapshot = await getDocs(collection(this.db, "products"));
@@ -2232,14 +2575,12 @@ const app = {
         if (!this.user) { this.showToast('Faça login para adicionar à wishlist.', 'error'); this.openAuthModal('login'); return; }
         if (this.isProductInWishlist(productId)) return;
 
-        console.log('Adding to wishlist. Current wishlist:', JSON.stringify(this.userProfile.wishlist));
         this.userProfile.wishlist.push(productId);
         this.updateWishlistIcons(productId, true); // Optimistic UI update
 
         try {
             await updateDoc(doc(this.db, "users", this.user.uid), { wishlist: this.userProfile.wishlist });
             this.showToast('Adicionado à Lista de Desejos!');
-            console.log('Successfully added to Firestore. New wishlist:', JSON.stringify(this.userProfile.wishlist));
         } catch (error) {
             console.error('Error adding to wishlist:', error);
             this.showToast('Erro ao adicionar à wishlist.', 'error');
@@ -2251,14 +2592,12 @@ const app = {
     async removeFromWishlist(productId) {
         if (!this.user) return;
         const initialWishlist = [...this.userProfile.wishlist];
-        console.log('Removing from wishlist. Current wishlist:', JSON.stringify(initialWishlist));
         this.userProfile.wishlist = this.userProfile.wishlist.filter(id => id !== productId);
         this.updateWishlistIcons(productId, false); // Optimistic UI update
 
         try {
             await updateDoc(doc(this.db, "users", this.user.uid), { wishlist: this.userProfile.wishlist });
             this.showToast('Removido da Lista de Desejos!');
-            console.log('Successfully removed from Firestore. New wishlist:', JSON.stringify(this.userProfile.wishlist));
         } catch (error) {
             console.error('Error removing from wishlist:', error);
             this.showToast('Erro ao remover da wishlist.', 'error');
@@ -2272,7 +2611,6 @@ const app = {
     },
 
     toggleWishlist(productId) {
-        console.log(`Toggling wishlist for product: ${productId}`);
         if (!this.user) {
             this.showToast('Faça login para usar a wishlist.', 'error');
             this.openAuthModal('login');
@@ -2299,34 +2637,111 @@ const app = {
         });
     },
 
-    initSearch() {
-        const searchIcon = document.getElementById('search-icon');
+    openSearch() {
         const searchOverlay = document.getElementById('search-overlay');
-        const searchInput = document.getElementById('search-input');
-        const closeSearchBtn = document.getElementById('close-search-btn');
-        const openSearch = () => { searchOverlay.classList.remove('hidden'); searchOverlay.classList.add('flex'); searchInput.focus(); };
-        const closeSearch = () => {
+        if (searchOverlay) {
+            searchOverlay.classList.remove('hidden');
+            document.getElementById('search-input')?.focus();
+        }
+    },
+
+    closeSearch() {
+        const searchOverlay = document.getElementById('search-overlay');
+        if (searchOverlay) {
             searchOverlay.classList.add('hidden');
-            if (window.location.hash.includes('/search')) {
-                searchInput.value = '';
-                this.navigateTo('/products');
-            }
-        };
-        searchIcon.addEventListener('click', openSearch);
-        closeSearchBtn.addEventListener('click', closeSearch);
-        searchOverlay.addEventListener('click', (e) => { if (e.target === searchOverlay) closeSearch(); });
+        }
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (suggestionsContainer) {
+            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.classList.add('hidden');
+        }
+    },
 
-        const debouncedSearch = this.debounce(() => {
-            const searchTerm = searchInput.value.trim();
-            if (searchTerm) {
-                this.trackEvent('search', { search_term: searchTerm });
-                this.navigateTo(`/search?q=${encodeURIComponent(searchTerm)}`);
-            } else if (window.location.hash.includes('/search')) {
-                this.navigateTo('/products');
-            }
-        }, 300);
+    initSearch() {
+        const searchInput = document.getElementById('search-input');
+        if (!searchInput) return;
 
-        searchInput.addEventListener('input', debouncedSearch);
+        const handleSearchInput = this.debounce(() => {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+
+            if (searchTerm.length < 2) {
+                const suggestionsContainer = document.getElementById('search-suggestions');
+                if (suggestionsContainer) {
+                    suggestionsContainer.innerHTML = '';
+                    suggestionsContainer.classList.add('hidden');
+                }
+                return;
+            }
+
+            const filteredProducts = this.products.filter(p =>
+                p.name.toLowerCase().includes(searchTerm) ||
+                p.description.toLowerCase().includes(searchTerm)
+            );
+            this.renderSearchSuggestions(filteredProducts, searchTerm);
+
+            this.trackEvent('search', { search_term: searchTerm });
+        }, 250);
+
+        searchInput.addEventListener('input', handleSearchInput);
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && searchInput.value.trim()) {
+                e.preventDefault();
+                this.navigateTo(`/search?q=${encodeURIComponent(searchInput.value.trim())}`);
+                this.closeSearch();
+            }
+        });
+    },
+
+    renderSearchSuggestions(products, searchTerm) {
+        const suggestionsContainer = document.getElementById('search-suggestions');
+        if (!suggestionsContainer) return;
+
+        if (products.length === 0) {
+            const categories = [...new Set(this.products.map(p => p.category).filter(Boolean))];
+            let suggestionsHtml = '<p class="p-4 text-center text-gray-400">Nenhum produto encontrado.</p>';
+
+            if (categories.length > 0) {
+                suggestionsHtml += `
+                    <div class="p-4 border-t border-gray-700">
+                        <h4 class="font-semibold text-white mb-3 text-center">Experimente pesquisar por categoria:</h4>
+                        <div class="flex flex-wrap justify-center gap-2">
+                            ${categories.map(cat => `
+                                <a href="#/products?category=${encodeURIComponent(cat)}" class="search-suggestion-item bg-secondary hover:bg-accent text-white text-sm font-semibold px-3 py-1 rounded-full transition-colors">
+                                    ${cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' ')}
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            suggestionsContainer.innerHTML = suggestionsHtml;
+            suggestionsContainer.classList.remove('hidden');
+            return;
+        }
+
+        const itemsHtml = products.slice(0, 5).map(p => {
+            const imageUrl = (p.images && p.images[0]) || p.image;
+            return `
+                <a href="#/product-detail?id=${p.id}" class="search-suggestion-item flex items-center p-3 hover:bg-secondary transition-colors">
+                    <img src="${imageUrl}" alt="${p.name}" class="w-12 h-12 object-cover rounded-md mr-4" onerror="this.onerror=null;this.src='https://placehold.co/48x48/1a1a1a/e11d48?text=Img';">
+                    <div>
+                        <p class="font-semibold text-white">${p.name}</p>
+                        <p class="text-sm text-accent">€${p.price.toFixed(2)}</p>
+                    </div>
+                </a>
+            `;
+        }).join('');
+
+        const seeAllHtml = `<a href="#/search?q=${encodeURIComponent(searchTerm)}" class="block text-center p-3 font-semibold text-accent hover:bg-secondary transition-colors">Ver todos os ${products.length} resultados</a>`;
+
+        suggestionsContainer.innerHTML = itemsHtml + seeAllHtml;
+        suggestionsContainer.classList.remove('hidden');
     },
 
     initMobileMenu() {
@@ -2439,9 +2854,20 @@ const app = {
 
     updateCartCountDisplay() {
         const totalItems = this.cart.reduce((sum, item) => sum + item.quantity, 0);
+
+        // Update top header cart count
         const cartCount = document.getElementById('cart-count');
-        cartCount.textContent = totalItems;
-        cartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        if (cartCount) {
+            cartCount.textContent = totalItems;
+            cartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        }
+
+        // Update bottom nav cart count
+        const bottomCartCount = document.getElementById('bottom-cart-count');
+        if (bottomCartCount) {
+            bottomCartCount.textContent = totalItems;
+            bottomCartCount.style.display = totalItems > 0 ? 'flex' : 'none';
+        }
     },
 
     async saveCart() {
@@ -2604,335 +3030,340 @@ const app = {
         if (document.getElementById('preview-modal')?.classList.contains('flex')) this.closePreviewModal();
     },
 
-    async updateCartQuantity(productId, action) {
-        const itemIndex = this.cart.findIndex(item => item.id === productId);
-        if (itemIndex === -1) return;
-        if (action === 'increase') this.cart[itemIndex].quantity++;
-        else if (action === 'decrease') {
-            this.cart[itemIndex].quantity--;
-            if (this.cart[itemIndex].quantity <= 0) this.cart.splice(itemIndex, 1);
-        }
-        await this.saveCart();
-        this.updateCartCountDisplay();
-        this.renderSidebarCart();
-        if (window.location.hash.includes('/cart')) this.renderCartPage();
-    },
-
-    async removeFromCart(productId) {
-        this.cart = this.cart.filter(item => item.id !== productId);
-        await this.saveCart();
-        this.updateCartCountDisplay();
-        this.renderSidebarCart();
-        if (window.location.hash.includes('/cart')) this.renderCartPage();
-    },
-
-    openPreviewModal(productId) {
-        const product = this.products.find(p => p.id === productId);
-        if (!product) return;
-        const modal = document.getElementById('preview-modal');
-        const content = document.getElementById('preview-content');
-        const imageUrl = (product.images && product.images[0]) || product.image;
-        content.classList.add('grid', 'md:grid-cols-2', 'gap-6');
-        content.innerHTML = `<h2 id="preview-heading" class="sr-only">Vista Rápida: ${product.name}</h2><button id="close-preview" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10"><i class="fas fa-times text-2xl"></i></button><div><img src="${imageUrl}" alt="${product.name}" class="w-full h-auto object-cover rounded-lg" onerror="this.onerror=null;this.src='https://placehold.co/600x600/1a1a1a/e11d48?text=Indisponível';" loading="lazy"></div><div class="flex flex-col"><h3 class="text-3xl font-extrabold text-white mb-3">${product.name}</h3><p class="text-gray-300 text-lg mb-6">${product.description}</p><div class="mt-auto"><span class="text-4xl font-bold text-accent mb-6 block">€${product.price.toFixed(2)}</span><button data-id="${product.id}" class="add-to-cart-btn w-full btn btn-primary flex items-center justify-center gap-2 text-center"><i class="fas fa-shopping-cart"></i> Adicionar ao Carrinho</button></div></div>`;
-        modal.classList.replace('hidden', 'flex');
-        document.getElementById('close-preview').addEventListener('click', () => this.closePreviewModal());
-        modal.addEventListener('click', (e) => { if (e.target.id === 'preview-modal') this.closePreviewModal(); });
-    },
-
-    closePreviewModal() {
-        document.getElementById('preview-modal').classList.replace('flex', 'hidden');
-        const content = document.getElementById('preview-content');
-        content.classList.remove('grid', 'md:grid-cols-2', 'gap-6');
-    },
-
-    async applyFirstPurchaseDiscountIfNeeded() {
-        if (!this.user || this.cart.length === 0 || this.discount.percentage > 0) return;
-
-        await this.loadOrders();
-
-        if (this.orders.length === 0) {
-            this.discount = { code: 'BEMVINDO10', percentage: 10, amount: 0 };
-            this.showToast('Desconto de 10% de primeira compra aplicado!', 'success');
-
-            if (window.location.hash.includes('/cart')) this.renderCartPage();
-            if (window.location.hash.includes('/checkout')) this.renderCheckoutPage();
+        async updateCartQuantity(productId, action) {
+            const itemIndex = this.cart.findIndex(item => item.id === productId);
+            if (itemIndex === -1) return;
+            if (action === 'increase') this.cart[itemIndex].quantity++;
+            else if (action === 'decrease') {
+                this.cart[itemIndex].quantity--;
+                if (this.cart[itemIndex].quantity <= 0) this.cart.splice(itemIndex, 1);
+            }
+            await this.saveCart();
+            this.updateCartCountDisplay();
             this.renderSidebarCart();
-        }
-    },
+            if (window.location.hash.includes('/cart')) this.renderCartPage();
+        },
 
-    showImageInModal(imageUrl) {
-        const modal = document.getElementById('preview-modal');
-        const content = document.getElementById('preview-content');
-        content.classList.remove('grid', 'md:grid-cols-2', 'gap-6');
-        content.innerHTML = `
-            <button id="close-preview" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10" aria-label="Fechar imagem"><i class="fas fa-times text-2xl"></i></button>
-            <div class="flex items-center justify-center w-full h-full p-4"><img src="${imageUrl}" alt="Imagem do produto" class="max-w-full max-h-[80vh] object-contain rounded-lg shadow-lg" onerror="this.onerror=null;this.src='https://placehold.co/800x600/1a1a1a/e11d48?text=Imagem+Indisponível';this.alt='Imagem indisponível.'"></div>`;
-        modal.classList.replace('hidden', 'flex');
-        document.getElementById('close-preview').addEventListener('click', () => this.closePreviewModal());
-        modal.addEventListener('click', (e) => { if (e.target.id === 'preview-modal') this.closePreviewModal(); });
-    },
+        async removeFromCart(productId) {
+            this.cart = this.cart.filter(item => item.id !== productId);
+            await this.saveCart();
+            this.updateCartCountDisplay();
+            this.renderSidebarCart();
+            if (window.location.hash.includes('/cart')) this.renderCartPage();
+        },
 
-    renderCartPage() {
-        const container = document.getElementById('cart-container');
-        if (!container) return;
-                if (this.cart.length === 0) {
-                    container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Continuar a Comprar</a></div>`;
-                    return;
+        openPreviewModal(productId) {
+            const product = this.products.find(p => p.id === productId);
+            if (!product) return;
+            const modal = document.getElementById('preview-modal');
+            const content = document.getElementById('preview-content');
+            const imageUrl = (product.images && product.images[0]) || product.image;
+            content.classList.add('grid', 'md:grid-cols-2', 'gap-6');
+            content.innerHTML = `<h2 id="preview-heading" class="sr-only">Vista Rápida: ${product.name}</h2><button id="close-preview" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10"><i class="fas fa-times text-2xl"></i></button><div><img src="${imageUrl}" alt="${product.name}" class="w-full h-auto object-cover rounded-lg" onerror="this.onerror=null;this.src='https://placehold.co/600x600/1a1a1a/e11d48?text=Indisponível';" loading="lazy"></div><div class="flex flex-col"><h3 class="text-3xl font-extrabold text-white mb-3">${product.name}</h3><p class="text-gray-300 text-lg mb-6">${product.description}</p><div class="mt-auto"><span class="text-4xl font-bold text-accent mb-6 block">€${product.price.toFixed(2)}</span><button data-id="${product.id}" class="add-to-cart-btn w-full btn btn-primary flex items-center justify-center gap-2 text-center"><i class="fas fa-shopping-cart"></i> Adicionar ao Carrinho</button></div></div>`;
+            modal.classList.replace('hidden', 'flex');
+            document.getElementById('close-preview').addEventListener('click', () => this.closePreviewModal());
+            modal.addEventListener('click', (e) => { if (e.target.id === 'preview-modal') this.closePreviewModal(); });
+        },
+
+        closePreviewModal() {
+            document.getElementById('preview-modal').classList.replace('flex', 'hidden');
+            const content = document.getElementById('preview-content');
+            content.classList.remove('grid', 'md:grid-cols-2', 'gap-6');
+        },
+
+        async applyFirstPurchaseDiscountIfNeeded() {
+            if (!this.user || this.cart.length === 0 || this.discount.percentage > 0) return;
+
+            await this.loadOrders();
+
+            if (this.orders.length === 0) {
+                this.discount = { code: 'BEMVINDO10', percentage: 10, amount: 0 };
+                this.showToast('Desconto de 10% de primeira compra aplicado!', 'success');
+
+                // Re-render the cart page if currently on it.
+                if (window.location.hash.includes('/cart')) {
+                    this.renderCartPage();
                 }
+                // For checkout, the summary will be updated by the calling function.
+                // No need to re-render the whole page here.
 
-                const itemsHtml = this.cart.map(item => {
-                    const priceDisplay = item.discountApplied
-                        ? `<span class="text-gray-500 line-through mr-2">€${item.originalPrice.toFixed(2)}</span><span class="text-accent font-bold text-lg">€${item.price.toFixed(2)}</span>`
-                        : `<span class="text-accent font-bold text-lg">€${item.price.toFixed(2)}</span>`;
-                    return `
-                        <div class="flex items-center border-b border-gray-700 py-4" data-id="${item.id}">
-                            <img src="${item.image}" alt="${item.name}" class="w-24 h-24 object-cover rounded-md mr-6" onerror="this.onerror=null;this.src='https://placehold.co/100x100/1a1a1a/e11d48?text=Img';" loading="lazy">
-                            <div class="flex-1">
-                                <h3 class="text-lg font-semibold">${item.name}</h3>
-                                ${priceDisplay}
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <div class="flex items-center border border-gray-600 rounded-md">
-                                    <button class="quantity-change p-2" aria-label="Diminuir quantidade de ${item.name}" data-action="decrease">-</button>
-                                    <span class="px-3" aria-live="polite">${item.quantity}</span>
-                                    <button class="quantity-change p-2" aria-label="Aumentar quantidade de ${item.name}" data-action="increase">+</button>
+                this.renderSidebarCart();
+            }
+        },
+
+        showImageInModal(imageUrl) {
+            const modal = document.getElementById('preview-modal');
+            const content = document.getElementById('preview-content');
+            content.classList.remove('grid', 'md:grid-cols-2', 'gap-6');
+            content.innerHTML = `
+                <button id="close-preview" class="absolute top-4 right-4 text-gray-400 hover:text-white z-10" aria-label="Fechar imagem"><i class="fas fa-times text-2xl"></i></button>
+                <div class="flex items-center justify-center w-full h-full p-4"><img src="${imageUrl}" alt="Imagem do produto" class="max-w-full max-h-[80vh] object-contain rounded-lg shadow-lg" onerror="this.onerror=null;this.src='https://placehold.co/800x600/1a1a1a/e11d48?text=Imagem+Indisponível';this.alt='Imagem indisponível.'"></div>`;
+            modal.classList.replace('hidden', 'flex');
+            document.getElementById('close-preview').addEventListener('click', () => this.closePreviewModal());
+            modal.addEventListener('click', (e) => { if (e.target.id === 'preview-modal') this.closePreviewModal(); });
+        },
+
+        renderCartPage() {
+            const container = document.getElementById('cart-container');
+            if (!container) return;
+                    if (this.cart.length === 0) {
+                        container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Continuar a Comprar</a></div>`;
+                        return;
+                    }
+
+                    const itemsHtml = this.cart.map(item => {
+                        const priceDisplay = item.discountApplied
+                            ? `<span class="text-gray-500 line-through mr-2">€${item.originalPrice.toFixed(2)}</span><span class="text-accent font-bold text-lg">€${item.price.toFixed(2)}</span>`
+                            : `<span class="text-accent font-bold text-lg">€${item.price.toFixed(2)}</span>`;
+                        return `
+                            <div class="flex items-center border-b border-gray-700 py-4" data-id="${item.id}">
+                                <img src="${item.image}" alt="${item.name}" class="w-24 h-24 object-cover rounded-md mr-6" onerror="this.onerror=null;this.src='https://placehold.co/100x100/1a1a1a/e11d48?text=Img';" loading="lazy">
+                                <div class="flex-1">
+                                    <h3 class="text-lg font-semibold">${item.name}</h3>
+                                    ${priceDisplay}
                                 </div>
-                                <button class="remove-item text-gray-500 hover:text-red-500 transition" aria-label="Remover ${item.name} do carrinho"><i class="fas fa-trash-alt text-lg"></i></button>
-                            </div>
-                        </div>`;
-                }).join('');
-
-                const subtotal = this.cart.reduce((sum, item) => sum + (item.originalPrice * item.quantity), 0);
-                const bundleDiscount = subtotal - this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-                const couponDiscountPercentage = this.discount.percentage || 0;
-                const priceAfterBundleDiscount = subtotal - bundleDiscount;
-                const couponDiscount = priceAfterBundleDiscount * (couponDiscountPercentage / 100);
-
-                const finalTotal = priceAfterBundleDiscount - couponDiscount;
-
-        const recommendationsHtml = this.renderCartRecommendations();
-                container.innerHTML = `
-                    <div class="w-full lg:w-2/3">
-                        <div class="bg-primary rounded-lg shadow-lg p-6">${itemsHtml}</div>
-                        ${recommendationsHtml}
-                    </div>
-                    <aside class="w-full lg:w-1/3">
-                        <div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
-                            <h3 class="text-2xl font-bold mb-6 border-b border-gray-700 pb-4">Resumo do Pedido</h3>
-                            <div class="space-y-4">
-                                <div class="flex justify-between"><span class="text-gray-400">Subtotal</span><span class="font-semibold">€${subtotal.toFixed(2)}</span></div>
-                                <div class="flex justify-between ${bundleDiscount > 0 ? '' : 'hidden'}" id="cart-bundle-discount-line">
-                                    <span class="text-gray-400">Desconto do Bundle</span><span class="font-semibold text-green-400">- €${bundleDiscount.toFixed(2)}</span>
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-center border border-gray-600 rounded-md">
+                                        <button class="quantity-change p-2" aria-label="Diminuir quantidade de ${item.name}" data-action="decrease">-</button>
+                                        <span class="px-3" aria-live="polite">${item.quantity}</span>
+                                        <button class="quantity-change p-2" aria-label="Aumentar quantidade de ${item.name}" data-action="increase">+</button>
+                                    </div>
+                                    <button class="remove-item text-gray-500 hover:text-red-500 transition" aria-label="Remover ${item.name} do carrinho"><i class="fas fa-trash-alt text-lg"></i></button>
                                 </div>
-                                <div class="flex justify-between ${couponDiscount > 0 ? '' : 'hidden'}" id="cart-coupon-discount-line">
-                                    <span class="text-gray-400">Desconto do Cupão (${this.discount.code})</span><span class="font-semibold text-green-400">- €${couponDiscount.toFixed(2)}</span>
-                                </div>
-                                <div class="flex justify-between border-t border-gray-700 pt-4"><span class="text-lg font-bold">Total</span><span class="text-lg font-bold">€${finalTotal.toFixed(2)}</span></div>
-                            </div>
-                            <div class="mt-6 pt-4 border-t border-gray-700">
-                                <label for="discount-code-input" class="block text-gray-300 mb-2 font-semibold">Código de Desconto</label>
-                                <div class="flex">
-                                    <input type="text" id="discount-code-input" placeholder="Insira o seu cupão" class="w-full bg-gray-800 text-white px-4 py-2 rounded-l-md focus:outline-none focus:ring-2 focus:ring-accent form-input">
-                                    <button id="apply-discount-btn" class="btn btn-secondary px-4 rounded-l-none">Aplicar</button>
-                                </div>
-                                <p id="discount-message" class="text-sm mt-2 h-4"></p>
-                            </div>
-                            <a href="#/checkout" class="w-full btn btn-primary mt-6 text-center block">Finalizar Compra</a>
+                            </div>`;
+                    }).join('');
+
+                    const subtotal = this.cart.reduce((sum, item) => sum + (item.originalPrice * item.quantity), 0);
+                    const bundleDiscount = subtotal - this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+                    const couponDiscountPercentage = this.discount.percentage || 0;
+                    const priceAfterBundleDiscount = subtotal - bundleDiscount;
+                    const couponDiscount = priceAfterBundleDiscount * (couponDiscountPercentage / 100);
+
+                    const finalTotal = priceAfterBundleDiscount - couponDiscount;
+
+            const recommendationsHtml = this.renderCartRecommendations();
+                    container.innerHTML = `
+                        <div class="w-full lg:w-2/3">
+                            <div class="bg-primary rounded-lg shadow-lg p-6">${itemsHtml}</div>
+                            ${recommendationsHtml}
                         </div>
-                    </aside>`;
-    },
-
-    initCartSidebar() {
-        const cartIcon = document.getElementById('cart-icon-container');
-        const closeBtn = document.getElementById('close-cart-btn');
-        const overlay = document.getElementById('cart-overlay');
-        const sidebar = document.getElementById('cart-sidebar');
-        cartIcon.addEventListener('click', (e) => { e.preventDefault(); this.openCartSidebar(); });
-        closeBtn.addEventListener('click', () => this.closeCartSidebar());
-        overlay.addEventListener('click', () => this.closeCartSidebar());
-        sidebar.addEventListener('click', (e) => { const target = e.target.closest('a'); if(target && (target.href.includes('#/cart') || target.href.includes('#/checkout'))) this.closeCartSidebar(); });
-    },
-
-    openCartSidebar() {
-        this.renderSidebarCart();
-        document.getElementById('cart-sidebar').classList.remove('translate-x-full');
-        document.getElementById('cart-overlay').classList.remove('hidden');
-        document.body.style.overflow = 'hidden';
-    },
-
-    closeCartSidebar() {
-        document.getElementById('cart-sidebar').classList.add('translate-x-full');
-        document.getElementById('cart-overlay').classList.add('hidden');
-        document.body.style.overflow = '';
-    },
-
-    renderSidebarCart() {
-        const contentEl = document.getElementById('cart-sidebar-content');
-        const footerEl = document.getElementById('cart-sidebar-footer');
-        if (!contentEl || !footerEl) return;
-        if (this.cart.length === 0) {
-            contentEl.innerHTML = `<div class="text-center py-16"><p class="text-gray-400">O seu carrinho está vazio.</p></div>`;
-            footerEl.innerHTML = `<a href="#/products" class="w-full btn btn-primary text-center block" onclick="app.closeCartSidebar()">Continuar a comprar</a>`;
-            return;
-        }
-
-                const itemsHtml = this.cart.map(item => {
-                    const priceDisplay = item.discountApplied
-                        ? `<p><span class="text-gray-500 line-through mr-1">€${item.originalPrice.toFixed(2)}</span><span class="text-accent font-bold">€${item.price.toFixed(2)}</span></p>`
-                        : `<p class="text-accent font-bold">€${item.price.toFixed(2)}</p>`;
-                    return `
-                        <div class="flex items-start gap-4 py-4 border-b border-gray-800" data-id="${item.id}">
-                            <img src="${item.image}" alt="${item.name}" class="w-20 h-20 object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/100x100/1a1a1a/e11d48?text=Img';" loading="lazy">
-                            <div class="flex-1">
-                                <h3 class="font-semibold">${item.name}</h3>
-                                ${priceDisplay}
-                                <div class="flex items-center border border-gray-600 rounded-md mt-2 w-fit">
-                                    <button class="quantity-change p-2 text-lg" aria-label="Diminuir quantidade de ${item.name}" data-action="decrease">-</button>
-                                    <span class="px-3" aria-live="polite">${item.quantity}</span>
-                                    <button class="quantity-change p-2 text-lg" aria-label="Aumentar quantidade de ${item.name}" data-action="increase">+</button>
+                        <aside class="w-full lg:w-1/3">
+                            <div class="bg-primary p-6 rounded-lg shadow-lg sticky top-28">
+                                <h3 class="text-2xl font-bold mb-6 border-b border-gray-700 pb-4">Resumo do Pedido</h3>
+                                <div class="space-y-4">
+                                    <div class="flex justify-between"><span class="text-gray-400">Subtotal</span><span class="font-semibold">€${subtotal.toFixed(2)}</span></div>
+                                    <div class="flex justify-between ${bundleDiscount > 0 ? '' : 'hidden'}" id="cart-bundle-discount-line">
+                                        <span class="text-gray-400">Desconto do Bundle</span><span class="font-semibold text-green-400">- €${bundleDiscount.toFixed(2)}</span>
+                                    </div>
+                                    <div class="flex justify-between ${couponDiscount > 0 ? '' : 'hidden'}" id="cart-coupon-discount-line">
+                                        <span class="text-gray-400">Desconto do Cupão (${this.discount.code})</span><span class="font-semibold text-green-400">- €${couponDiscount.toFixed(2)}</span>
+                                    </div>
+                                    <div class="flex justify-between border-t border-gray-700 pt-4"><span class="text-lg font-bold">Total</span><span class="text-lg font-bold">€${finalTotal.toFixed(2)}</span></div>
                                 </div>
+                                <div class="mt-6 pt-4 border-t border-gray-700">
+                                    <label for="discount-code-input" class="block text-gray-300 mb-2 font-semibold">Código de Desconto</label>
+                                    <div class="flex">
+                                        <input type="text" id="discount-code-input" placeholder="Insira o seu cupão" class="w-full bg-gray-800 text-white px-4 py-2 rounded-l-md focus:outline-none focus:ring-2 focus:ring-accent form-input">
+                                        <button id="apply-discount-btn" class="btn btn-secondary px-4 rounded-l-none">Aplicar</button>
+                                    </div>
+                                    <p id="discount-message" class="text-sm mt-2 h-4"></p>
+                                </div>
+                                <a href="#/checkout" class="w-full btn btn-primary mt-6 text-center block">Finalizar Compra</a>
                             </div>
-                            <button class="remove-item text-gray-500 hover:text-red-500 transition" aria-label="Remover ${item.name} do carrinho"><i class="fas fa-trash-alt"></i></button>
-                        </div>`;
-                }).join('');
-        contentEl.innerHTML = itemsHtml;
+                        </aside>`;
+        },
 
-                const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const couponDiscount = subtotal * ((this.discount.percentage || 0) / 100);
-                const finalTotal = subtotal - couponDiscount;
+        initCartSidebar() {
+            const cartIcon = document.getElementById('cart-icon-container');
+            const closeBtn = document.getElementById('close-cart-btn');
+            const overlay = document.getElementById('cart-overlay');
+            const sidebar = document.getElementById('cart-sidebar');
+            cartIcon.addEventListener('click', (e) => { e.preventDefault(); this.openCartSidebar(); });
+            closeBtn.addEventListener('click', () => this.closeCartSidebar());
+            overlay.addEventListener('click', () => this.closeCartSidebar());
+            sidebar.addEventListener('click', (e) => { const target = e.target.closest('a'); if(target && (target.href.includes('#/cart') || target.href.includes('#/checkout'))) this.closeCartSidebar(); });
+        },
 
-                footerEl.innerHTML = `
-                    <div class="flex justify-between items-center mb-4">
-                        <span class="text-lg font-bold">Total</span>
-                        <span class="text-lg font-bold text-accent">€${finalTotal.toFixed(2)}</span>
-                    </div>
-                    <p class="text-xs text-gray-500 text-center mb-4">Portes e taxas calculados no checkout.</p>
-                    <div class="space-y-3">
-                        <a href="#/cart" class="w-full btn btn-secondary text-center block">Ver Carrinho</a>
-                        <a href="#/checkout" class="w-full btn btn-primary text-center block">Finalizar Compra</a>
-                    </div>`;
-    },
+        openCartSidebar() {
+            this.renderSidebarCart();
+            document.getElementById('cart-sidebar').classList.remove('translate-x-full');
+            document.getElementById('cart-overlay').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        },
 
-    async handleApplyDiscount(codeInputId, messageId) {
-        const discountCodeInput = document.getElementById(codeInputId);
-        const discountMessage = document.getElementById(messageId);
-        const code = discountCodeInput.value.trim().toUpperCase();
+        closeCartSidebar() {
+            document.getElementById('cart-sidebar').classList.add('translate-x-full');
+            document.getElementById('cart-overlay').classList.add('hidden');
+            document.body.style.overflow = '';
+        },
 
-        this.discount = { code: '', percentage: 0, amount: 0 };
-        if (discountMessage) {
-            discountMessage.textContent = '';
-            discountMessage.classList.remove('text-green-400', 'text-red-400');
-        }
-
-        if (!code) {
-            this.showToast('Nenhum código de desconto inserido.', 'error');
-        } else if (code === 'BEMVINDO10') {
-            if (!this.user) {
-                this.showToast('Faça login para usar este cupão.', 'error');
-                this.openAuthModal('login');
+        renderSidebarCart() {
+            const contentEl = document.getElementById('cart-sidebar-content');
+            const footerEl = document.getElementById('cart-sidebar-footer');
+            if (!contentEl || !footerEl) return;
+            if (this.cart.length === 0) {
+                contentEl.innerHTML = `<div class="text-center py-16"><p class="text-gray-400">O seu carrinho está vazio.</p></div>`;
+                footerEl.innerHTML = `<a href="#/products" class="w-full btn btn-primary text-center block" onclick="app.closeCartSidebar()">Continuar a comprar</a>`;
                 return;
             }
-            await this.loadOrders();
-            if (this.orders.length > 0) {
-                if (discountMessage) {
-                    discountMessage.textContent = 'Cupão apenas para a primeira compra.';
-                    discountMessage.classList.add('text-red-400');
+
+                    const itemsHtml = this.cart.map(item => {
+                        const priceDisplay = item.discountApplied
+                            ? `<p><span class="text-gray-500 line-through mr-1">€${item.originalPrice.toFixed(2)}</span><span class="text-accent font-bold">€${item.price.toFixed(2)}</span></p>`
+                            : `<p class="text-accent font-bold">€${item.price.toFixed(2)}</p>`;
+                        return `
+                            <div class="flex items-start gap-4 py-4 border-b border-gray-800" data-id="${item.id}">
+                                <img src="${item.image}" alt="${item.name}" class="w-20 h-20 object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/100x100/1a1a1a/e11d48?text=Img';" loading="lazy">
+                                <div class="flex-1">
+                                    <h3 class="font-semibold">${item.name}</h3>
+                                    ${priceDisplay}
+                                    <div class="flex items-center border border-gray-600 rounded-md mt-2 w-fit">
+                                        <button class="quantity-change p-2 text-lg" aria-label="Diminuir quantidade de ${item.name}" data-action="decrease">-</button>
+                                        <span class="px-3" aria-live="polite">${item.quantity}</span>
+                                        <button class="quantity-change p-2 text-lg" aria-label="Aumentar quantidade de ${item.name}" data-action="increase">+</button>
+                                    </div>
+                                </div>
+                                <button class="remove-item text-gray-500 hover:text-red-500 transition" aria-label="Remover ${item.name} do carrinho"><i class="fas fa-trash-alt"></i></button>
+                            </div>`;
+                    }).join('');
+            contentEl.innerHTML = itemsHtml;
+
+                    const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                    const couponDiscount = subtotal * ((this.discount.percentage || 0) / 100);
+                    const finalTotal = subtotal - couponDiscount;
+
+                    footerEl.innerHTML = `
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="text-lg font-bold">Total</span>
+                            <span class="text-lg font-bold text-accent">€${finalTotal.toFixed(2)}</span>
+                        </div>
+                        <p class="text-xs text-gray-500 text-center mb-4">Portes e taxas calculados no checkout.</p>
+                        <div class="space-y-3">
+                            <a href="#/cart" class="w-full btn btn-secondary text-center block">Ver Carrinho</a>
+                            <a href="#/checkout" class="w-full btn btn-primary text-center block">Finalizar Compra</a>
+                        </div>`;
+        },
+
+        async handleApplyDiscount(codeInputId, messageId) {
+            const discountCodeInput = document.getElementById(codeInputId);
+            const discountMessage = document.getElementById(messageId);
+            const code = discountCodeInput.value.trim().toUpperCase();
+
+            this.discount = { code: '', percentage: 0, amount: 0 };
+            if (discountMessage) {
+                discountMessage.textContent = '';
+                discountMessage.classList.remove('text-green-400', 'text-red-400');
+            }
+
+            if (!code) {
+                this.showToast('Nenhum código de desconto inserido.', 'error');
+            } else if (code === 'BEMVINDO10') {
+                if (!this.user) {
+                    this.showToast('Faça login para usar este cupão.', 'error');
+                    this.openAuthModal('login');
+                    return;
                 }
-                this.showToast('Este cupão é válido apenas na primeira compra.', 'error');
-            } else {
+                await this.loadOrders();
+                if (this.orders.length > 0) {
+                    if (discountMessage) {
+                        discountMessage.textContent = 'Cupão apenas para a primeira compra.';
+                        discountMessage.classList.add('text-red-400');
+                    }
+                    this.showToast('Este cupão é válido apenas na primeira compra.', 'error');
+                } else {
+                    this.discount = { code: code, percentage: 10, amount: 0 };
+                    if (discountMessage) {
+                        discountMessage.textContent = `Desconto de 10% aplicado!`;
+                        discountMessage.classList.add('text-green-400');
+                    }
+                    this.showToast('Desconto aplicado com sucesso!', 'success');
+                }
+            } else if (code === 'DESCONTO10') {
                 this.discount = { code: code, percentage: 10, amount: 0 };
                 if (discountMessage) {
                     discountMessage.textContent = `Desconto de 10% aplicado!`;
                     discountMessage.classList.add('text-green-400');
                 }
                 this.showToast('Desconto aplicado com sucesso!', 'success');
+            } else if (code === 'PRAZER5') {
+                this.discount = { code: code, percentage: 5, amount: 0 };
+                if (discountMessage) {
+                    discountMessage.textContent = `Desconto de 5% aplicado!`;
+                    discountMessage.classList.add('text-green-400');
+                }
+                this.showToast('Desconto aplicado com sucesso!', 'success');
+            } else {
+                if (discountMessage) {
+                    discountMessage.textContent = 'Código de desconto inválido.';
+                    discountMessage.classList.add('text-red-400');
+                }
+                this.showToast('Código de desconto inválido.', 'error');
             }
-        } else if (code === 'DESCONTO10') {
-            this.discount = { code: code, percentage: 10, amount: 0 };
-            if (discountMessage) {
-                discountMessage.textContent = `Desconto de 10% aplicado!`;
-                discountMessage.classList.add('text-green-400');
+
+            this.renderSidebarCart();
+            if (window.location.hash.includes('/cart')) {
+                this.renderCartPage();
             }
-            this.showToast('Desconto aplicado com sucesso!', 'success');
-        } else if (code === 'PRAZER5') {
-            this.discount = { code: code, percentage: 5, amount: 0 };
-            if (discountMessage) {
-                discountMessage.textContent = `Desconto de 5% aplicado!`;
-                discountMessage.classList.add('text-green-400');
+        },
+
+        applyDiscount() {
+            this.handleApplyDiscount('discount-code-input', 'discount-message');
+        },
+
+        applyDiscountSidebar() {
+            this.handleApplyDiscount('sidebar-discount-code-input', 'sidebar-discount-message');
+        },
+
+        applyLoyaltyPoints() {
+            const input = document.getElementById('loyalty-points-input');
+            const messageEl = document.getElementById('loyalty-message');
+            const pointsToRedeem = parseInt(input.value);
+
+            messageEl.textContent = '';
+            messageEl.classList.remove('text-green-400', 'text-red-400');
+
+            if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) {
+                this.showToast('Por favor, insira um número válido de pontos.', 'error');
+                messageEl.textContent = 'Número inválido.';
+                messageEl.classList.add('text-red-400');
+                return;
             }
-            this.showToast('Desconto aplicado com sucesso!', 'success');
-        } else {
-            if (discountMessage) {
-                discountMessage.textContent = 'Código de desconto inválido.';
-                discountMessage.classList.add('text-red-400');
+
+            if (pointsToRedeem > this.userProfile.loyaltyPoints) {
+                this.showToast('Não tem pontos suficientes.', 'error');
+                messageEl.textContent = 'Pontos insuficientes.';
+                messageEl.classList.add('text-red-400');
+                return;
             }
-            this.showToast('Código de desconto inválido.', 'error');
-        }
 
-        this.renderSidebarCart();
-        if (window.location.hash.includes('/cart')) {
-            this.renderCartPage();
-        }
-    },
+            const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const couponDiscount = subtotal * ((this.discount.percentage || 0) / 100);
+            const maxRedeemableValue = subtotal - couponDiscount;
 
-    applyDiscount() {
-        this.handleApplyDiscount('discount-code-input', 'discount-message');
-    },
+            const loyaltyDiscountAmount = pointsToRedeem / 100; // 100 points = 1€
 
-    applyDiscountSidebar() {
-        this.handleApplyDiscount('sidebar-discount-code-input', 'sidebar-discount-message');
-    },
+            if (loyaltyDiscountAmount > maxRedeemableValue) {
+                this.showToast(`Não pode resgatar mais do que o valor do seu pedido.`, 'error');
+                messageEl.textContent = `Máximo de €${maxRedeemableValue.toFixed(2)} resgatável.`;
+                messageEl.classList.add('text-red-400');
+                return;
+            }
 
-    applyLoyaltyPoints() {
-        const input = document.getElementById('loyalty-points-input');
-        const messageEl = document.getElementById('loyalty-message');
-        const pointsToRedeem = parseInt(input.value);
+            this.loyalty.pointsUsed = pointsToRedeem;
+            this.loyalty.discountAmount = loyaltyDiscountAmount;
 
-        messageEl.textContent = '';
-        messageEl.classList.remove('text-green-400', 'text-red-400');
-
-        if (isNaN(pointsToRedeem) || pointsToRedeem <= 0) {
-            this.showToast('Por favor, insira um número válido de pontos.', 'error');
-            messageEl.textContent = 'Número inválido.';
-            messageEl.classList.add('text-red-400');
-            return;
-        }
-
-        if (pointsToRedeem > this.userProfile.loyaltyPoints) {
-            this.showToast('Não tem pontos suficientes.', 'error');
-            messageEl.textContent = 'Pontos insuficientes.';
-            messageEl.classList.add('text-red-400');
-            return;
-        }
-
-        const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const couponDiscount = subtotal * ((this.discount.percentage || 0) / 100);
-        const maxRedeemableValue = subtotal - couponDiscount;
-
-        const loyaltyDiscountAmount = pointsToRedeem / 100; // 100 points = 1€
-
-        if (loyaltyDiscountAmount > maxRedeemableValue) {
-            this.showToast(`Não pode resgatar mais do que o valor do seu pedido.`, 'error');
-            messageEl.textContent = `Máximo de €${maxRedeemableValue.toFixed(2)} resgatável.`;
-            messageEl.classList.add('text-red-400');
-            return;
-        }
-
-        this.loyalty.pointsUsed = pointsToRedeem;
-        this.loyalty.discountAmount = loyaltyDiscountAmount;
-
-        this.showToast(`Desconto de €${loyaltyDiscountAmount.toFixed(2)} aplicado!`);
-        messageEl.textContent = `€${loyaltyDiscountAmount.toFixed(2)} de desconto aplicado!`;
-        messageEl.classList.add('text-green-400');
-        this.updateCheckoutSummary();
-    },
+            this.showToast(`Desconto de €${loyaltyDiscountAmount.toFixed(2)} aplicado!`);
+            messageEl.textContent = `€${loyaltyDiscountAmount.toFixed(2)} de desconto aplicado!`;
+            messageEl.classList.add('text-green-400');
+            this.updateCheckoutSummary();
+        },
 
     renderCartRecommendations() {
         const cartItemIds = this.cart.map(item => item.id);
         const recommendedProducts = this.products.filter(p => !cartItemIds.includes(p.id)).sort(() => 0.5 - Math.random()).slice(0, 2);
         if (recommendedProducts.length === 0) return '';
-        return `<div id="cart-recommendations" class="mt-8 bg-primary p-6 rounded-lg"><h3 class="text-xl font-bold mb-4">💕 Também poderá gostar:</h3><div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${recommendedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}</div></div>`;
+        return `<div id="cart-recommendations" class="mt-8 bg-primary p-6 rounded-lg"><h3 class="text-xl font-bold mb-4">💕 Também poderá gostar:</h3><div class="grid grid-cols-2 sm:grid-cols-2 gap-4">${recommendedProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')}</div></div>`;
     },
 
     initFilters(params) {
@@ -3031,8 +3462,6 @@ const app = {
     },
 
     applyFilters(isInitialLoad = false) {
-        console.log("Applying filters with state:", JSON.parse(JSON.stringify(this.filters))); // Debugging line
-
         const searchTerm = document.getElementById('search-input')?.value.toLowerCase() || '';
         let filtered = [...this.products];
 
@@ -3160,7 +3589,43 @@ const app = {
 
     initProductSorting() { document.getElementById('sort')?.addEventListener('change', () => this.applyFilters()); },
 
+    showPurchaseSuccessModal() {
+        const modal = document.getElementById('purchase-success-modal');
+        if (!modal) return;
+
+        const content = modal.querySelector('.transform');
+        const close = () => {
+            content.classList.remove('opacity-100', 'scale-100');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        };
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => {
+            content.classList.add('opacity-100', 'scale-100');
+        }, 10);
+
+        // Close modal if user clicks outside of it
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                close();
+            }
+        });
+
+        // Make sure the buttons also close the modal before navigating
+        document.getElementById('view-orders-btn').addEventListener('click', close);
+        document.getElementById('continue-shopping-btn').addEventListener('click', close);
+    },
+
     async initAccountPage(initialTab = 'dashboard') {
+        if (sessionStorage.getItem('paymentSuccess')) {
+            this.showPurchaseSuccessModal();
+            sessionStorage.removeItem('paymentSuccess');
+        }
+
         const navContainer = document.getElementById('account-nav');
         const contentArea = document.getElementById('account-content-area');
         if (!navContainer || !contentArea || !this.userProfile) return;
@@ -3212,7 +3677,6 @@ const app = {
         if (!container) return;
 
         const wishlistIds = this.userProfile?.wishlist || [];
-        console.log('Rendering wishlist page. Wishlist IDs:', JSON.stringify(wishlistIds));
 
         if (wishlistIds.length === 0) {
             container.innerHTML = '<p class="text-gray-400 col-span-full">A sua lista de desejos está vazia.</p>';
@@ -3220,7 +3684,6 @@ const app = {
         }
 
         const wishlistProducts = this.products.filter(p => wishlistIds.includes(p.id));
-        console.log('Found products for wishlist:', JSON.stringify(wishlistProducts.map(p => p.name)));
 
         container.innerHTML = wishlistProducts.length > 0
             ? wishlistProducts.map(p => renderProductCard(p, this.isProductInWishlist.bind(this))).join('')
@@ -3277,15 +3740,18 @@ const app = {
         const orderListEl = document.getElementById('order-history-list');
         if (!orderListEl) return;
         await this.loadOrders();
-        if (this.orders.length === 0) { orderListEl.innerHTML = `<p class="text-gray-400">Ainda não fez nenhuma encomenda.</p>`; return; }
+        if (this.orders.length === 0) {
+            orderListEl.innerHTML = `<p class="text-gray-400">Ainda não fez nenhuma encomenda.</p>`;
+            return;
+        }
         orderListEl.innerHTML = this.orders.map(order => {
             const dateObj = order.createdAt?.toDate() || order.timestamp?.toDate();
             const orderDate = dateObj ? new Date(dateObj).toLocaleDateString('pt-PT') : 'Data Indisponível';
             const status = order.status || 'Pendente';
             return `
-            <div class="accordion bg-secondary rounded-lg overflow-hidden">
+            <div class="bg-secondary rounded-lg overflow-hidden">
                 <button class="accordion-header w-full flex justify-between items-center p-4 text-left gap-4">
-                    <span class="font-bold text-white">#${order.id.substring(0, 8).toUpperCase()}</span>
+                    <span class="font-bold text-white text-sm">#${order.id.substring(0, 8).toUpperCase()}</span>
                     <span class="text-gray-400 hidden sm:inline">${orderDate}</span>
                     <span class="font-semibold text-white flex-1 text-right">€${order.total.toFixed(2)}</span>
                     <span class="py-1 px-3 rounded-full text-xs font-bold whitespace-nowrap ${this.getStatusColor(status)}">${status}</span>
@@ -3337,17 +3803,10 @@ const app = {
     },
 
     async renderCheckoutPage(params) {
-        if (this.cart.length === 0) {
+        if (this.cart.length === 0 && !params.get('payment_intent_client_secret')) {
             const container = document.querySelector('#app-root .container');
             if (container) container.innerHTML = `<div class="w-full text-center py-16 bg-primary rounded-lg"><h2 class="text-2xl font-bold mb-4">O seu carrinho está vazio.</h2><a href="#/products" class="btn btn-primary">Começar a Comprar</a></div>`;
             return;
-        }
-
-        // After a payment, Stripe redirects the user back to this page with URL parameters.
-        // We need to check for these parameters to handle the post-payment logic.
-        if (params.get('payment_intent_client_secret')) {
-            this.handlePostPayment(params);
-            return; // Stop further rendering until the payment status is confirmed.
         }
 
         // Reset loyalty discount when the checkout page is first rendered.
@@ -3359,8 +3818,19 @@ const app = {
         this.updateCheckoutView();
 
         const loyaltyPointsEl = document.getElementById('loyalty-points-available');
-        if (loyaltyPointsEl && this.userProfile) {
-            loyaltyPointsEl.textContent = Math.floor(this.userProfile.loyaltyPoints) || 0;
+        const loyaltySection = document.getElementById('loyalty-section');
+
+        if (this.userProfile && this.userProfile.loyaltyPoints > 0) {
+            if (loyaltyPointsEl) {
+                loyaltyPointsEl.textContent = Math.floor(this.userProfile.loyaltyPoints);
+            }
+            if (loyaltySection) {
+                loyaltySection.classList.remove('hidden');
+            }
+        } else {
+            if (loyaltySection) {
+                loyaltySection.classList.add('hidden');
+            }
         }
     },
 
@@ -3581,34 +4051,23 @@ const app = {
     async initStripePayment() {
         this.showLoading();
         try {
-            // Calculate the final total in the smallest currency unit (cents).
-            const subtotal = this.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const couponDiscountAmount = subtotal * (this.discount.percentage / 100);
-            const loyaltyDiscountAmount = this.loyalty.discountAmount || 0;
-            const total = subtotal - couponDiscountAmount - loyaltyDiscountAmount;
-            const amountInCents = Math.round(Math.max(0, total) * 100);
-
             // Call the cloud function to create a payment intent.
-            // Note: The URL might need to be updated based on your Firebase project region.
-            const response = await fetch('https://us-central1-desire-loja-final.cloudfunctions.net/createStripePaymentIntent', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    amount: amountInCents,
-                    currency: 'eur',
-                    userId: this.user.uid,
-                    cart: this.cart.map(item => ({ id: item.id, quantity: item.quantity }))
-                }),
-            });
+            const createStripePaymentIntent = httpsCallable(this.functions, 'createStripePaymentIntent');
+            const payload = {
+                cart: this.cart, // Send the full cart for server-side validation
+                loyaltyPoints: this.loyalty.pointsUsed,
+                discount: this.discount, // Send discount info for server-side validation
+                userId: this.user.uid
+            };
+            console.log("DEBUG: Calling 'createStripePaymentIntent' with payload:", JSON.stringify(payload, null, 2));
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to create payment intent.');
+            const result = await createStripePaymentIntent(payload);
+            const data = result.data;
+
+            if (data.error) {
+                 throw new Error(data.error);
             }
 
-            const data = await response.json();
             this.paymentIntentClientSecret = data.clientSecret;
 
             // Define the appearance of the Stripe Element.
@@ -3631,8 +4090,9 @@ const app = {
             paymentElement.mount("#payment-element");
 
         } catch (error) {
-            console.error("Stripe initialization failed:", error);
-            this.showToast('Falha ao iniciar o processo de pagamento.', 'error');
+            console.error("--- DEBUG: Stripe Payment Initialization FAILED ---");
+            console.error("Error object:", error);
+            this.showToast(`Erro ao iniciar pagamento: ${error.message}`, 'error');
         } finally {
             this.hideLoading();
         }
@@ -3663,8 +4123,11 @@ const app = {
         // This point will only be reached if there is an immediate error.
         // If the payment requires a redirect, the user will be sent away from the page.
         if (error) {
+            console.error("--- DEBUG: Stripe confirmPayment FAILED ---");
+            console.error("Error Type:", error.type);
+            console.error("Error Message:", error.message);
             const messageContainer = document.querySelector("#payment-message");
-            messageContainer.textContent = error.message;
+            messageContainer.textContent = `Erro no pagamento: ${error.message}`;
             messageContainer.classList.remove('hidden');
             this.hideLoading();
         } else {
@@ -3682,35 +4145,65 @@ const app = {
         this.showLoading();
 
         const clientSecret = params.get('payment_intent_client_secret');
-        const { paymentIntent } = await this.stripe.retrievePaymentIntent(clientSecret);
-
-        switch (paymentIntent.status) {
-            case "succeeded":
-                this.showToast("Pagamento recebido com sucesso! A sua encomenda está a ser processada.", "success");
-                // The webhook will handle order creation. We just need to clear the local state.
-                this.cart = [];
-                this.loyalty = { pointsUsed: 0, discountAmount: 0 };
-                this.discount = { code: '', percentage: 0, amount: 0 };
-                await this.saveCart(); // This will save an empty cart to Firestore.
-                this.updateCartCountDisplay();
-
-                // Redirect the user to the order confirmation page.
-                this.navigateTo('/account?tab=orders');
-                break;
-            case "processing":
-                this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
-                this.navigateTo('/');
-                break;
-            case "requires_payment_method":
-                this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
-            default:
-                this.showToast("Algo correu mal com o pagamento.", "error");
-                this.navigateTo('/checkout');
-                break;
+        if (!clientSecret) {
+            this.hideLoading();
+            return;
         }
-        this.hideLoading();
+
+        try {
+            console.log("--- DEBUG: Handling post-payment redirect. ---");
+            const { paymentIntent, error } = await this.stripe.retrievePaymentIntent(clientSecret);
+
+            if (error) {
+                console.error("--- DEBUG: Error retrieving Payment Intent ---", error);
+                throw new Error(error.message);
+            }
+
+            console.log(`--- DEBUG: Retrieved Payment Intent. Status: ${paymentIntent.status} ---`);
+
+            switch (paymentIntent.status) {
+                case "succeeded":
+                    this.showToast("Pagamento bem-sucedido! A sua encomenda está a ser processada.");
+
+                    // Clear local cart for immediate UI feedback.
+                    // The backend webhook is the source of truth for clearing the cart in Firestore.
+                    this.cart = [];
+                    this.loyalty = { pointsUsed: 0, discountAmount: 0 };
+                    this.discount = { code: '', percentage: 0, amount: 0 };
+                    this.updateCartCountDisplay(); // Update UI immediately
+
+                    // Set a flag to show a success message on the account page.
+                    sessionStorage.setItem('paymentSuccess', 'true');
+
+                    // IMPORTANT: Force a reload of user profile and orders before redirecting
+                    // to ensure the new order is visible immediately.
+                    console.log("--- DEBUG: Payment succeeded. Reloading user profile and orders before redirect. ---");
+                    await this.loadUserProfile();
+                    await this.loadOrders();
+
+                    // Redirect the user to their orders page.
+                    this.navigateTo('/account?tab=orders');
+                    break;
+                case "processing":
+                    this.showToast("O seu pagamento está a ser processado. Será notificado em breve.", "success");
+                    this.navigateTo('/account?tab=orders');
+                    break;
+                case "requires_payment_method":
+                    this.showToast("O pagamento falhou. Por favor, tente outro método de pagamento.", "error");
+                    this.navigateTo('/checkout'); // Send back to checkout
+                    break;
+                default:
+                    console.warn(`--- DEBUG: Unhandled payment intent status: ${paymentIntent.status} ---`);
+                    this.showToast("Algo correu mal com o pagamento. Por favor, tente novamente.", "error");
+                    this.navigateTo('/checkout'); // Send back to checkout
+                    break;
+            }
+        } catch (error) {
+            console.error("--- DEBUG: Catastrophic failure in handlePostPayment ---", error);
+            this.showToast(`Não foi possível verificar o seu pagamento: ${error.message}`, "error");
+        } finally {
+            this.hideLoading();
+        }
     },
 
     initExitIntentPopup() {
